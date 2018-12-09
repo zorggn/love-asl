@@ -52,3 +52,6 @@ There are two ways to use this library:
 
 - Implement advanced functionality to `stream`-type Sources as well, that use Decoders internally.
 - Implement some kind of windowing to make pitch shifting & time stretching click/pop less.
+
+### License
+This library licensed under the ISC License.
