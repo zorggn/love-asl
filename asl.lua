@@ -739,6 +739,13 @@ new = function(a, b, c, d)
 		asource.samplingRate = asource.data:getSampleRate()
 		asource.bitDepth     = asource.data:getBitDepth()
 		asource.channelCount = asource.data:getChannelCount()
+
+		-- Try setting the default loop endpoint to the end of the waveform.
+		if asource._type == 'static' then
+			asource.endpoint = asource.data:getSampleCount()
+		elseif asource._type == 'stream' then
+			asource.endpoint = asource.data:getDuration() * asource.samplingRate
+		end
 	end
 
 	-- Create internal Qsource.
