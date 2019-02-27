@@ -55,78 +55,72 @@ local Generator = {}
 
 Generator.static = function(instance)
 	
-	local i = 0
 	local p = instance.pointer
 
-	while i <= instance.bufferSize-1 do
+	if instance._isPlaying then
+		for i=0, instance.bufferSize-1 do
 
-		if instance.isPlaying then
+			-- Copy samplepoints to buffer.
 			local smp = 0.0
-			if instance.channelCount == 1 then
-				smp = instance.data:getSample(math.floor(p))
-				smp = smp / 2
+			for ch=1, instance.channelCount do
+				smp = instance.data:getSample(math.floor(p), ch)
 				smp = math.min(math.max(smp, -1), 1)
-				instance.buffer:setSample(i, smp)
-			elseif instance.channelCount == 2 then
-				smp = instance.data:getSample(math.floor(p), 1)
-				smp = math.min(math.max(smp, -1), 1)
-				instance.buffer:setSample(i, 1, smp)
-				smp = instance.data:getSample(math.floor(p), 2)
-				smp = math.min(math.max(smp, -1), 1)
-				instance.buffer:setSample(i, 2, smp)
+				instance.buffer:setSample(i, ch, smp)
 			end
-		else
-			if instance.channelCount == 1 then
-				instance.buffer:setSample(i,    0.0)
-			elseif instance.channelCount == 2 then
-				instance.buffer:setSample(i, 1, 0.0)
-				instance.buffer:setSample(i, 2, 0.0)
-			end
-		end
 
-		if instance.looping then
+			-- Calculate next buffer-internal pointer.
 			p = (p + instance.innerOffset)
-			if instance.timeDilation >= 0 then
-				while p > instance.endpoint do
-					p = p - (instance.endpoint - instance.startpoint)
-				end
-			else
-				while p < instance.startpoint do
-					p = p + (instance.endpoint - instance.startpoint)
-				end
-			end
-			p = p % instance.data:getSampleCount()
-		else
-			p = (p + instance.innerOffset)
-			if p >= instance.data:getSampleCount() or p < 0 then
-				instance.isPlaying = false
-				instance.pointer = 0
-			end
-		end
-		
-
-		i = i + 1
-	end
-
-	if instance.isPlaying then
-		if instance.pitchShift > 0 then
 			if instance.looping then
-				instance.pointer = (instance.pointer - (instance.outerOffset * instance.bufferSize))
 				if instance.timeDilation >= 0 then
-					while instance.pointer > instance.endpoint do
-						instance.pointer = instance.pointer - (instance.endpoint - instance.startpoint)
+					while p > instance.endpoint do
+						p = p - (instance.endpoint - instance.startpoint)
 					end
 				else
-					while instance.pointer < instance.startpoint do
-						instance.pointer = instance.pointer + (instance.endpoint - instance.startpoint)
+					while p < instance.startpoint do
+						p = p + (instance.endpoint - instance.startpoint)
 					end
 				end
+				p = p % instance.data:getSampleCount()
 			else
-				instance.pointer = (instance.pointer - (instance.outerOffset * instance.bufferSize))
+				if p >= instance.data:getSampleCount() or p < 0 then
+					-- Fill rest of the buffer with silence.
+					for j=i+1, instance.bufferSize-1 do
+						for ch=1, instance.channelCount do
+							instance.buffer:setSample(j, ch, 0.0)
+						end
+					end
+
+					instance:stop()
+					return
+				end
 			end
 		end
+
+		-- Calculate next buffer-external pointer.
+		if instance.looping then
+			instance.pointer = (instance.pointer - (instance.outerOffset * instance.bufferSize))
+			if instance.timeDilation >= 0 then
+				while instance.pointer > instance.endpoint do
+					instance.pointer = instance.pointer - (instance.endpoint - instance.startpoint)
+				end
+			else
+				while instance.pointer < instance.startpoint do
+					instance.pointer = instance.pointer + (instance.endpoint - instance.startpoint)
+				end
+			end
+		else
+			instance.pointer = (instance.pointer - (instance.outerOffset * instance.bufferSize))
+		end
 		instance.pointer = instance.pointer % instance.data:getSampleCount()
-	end
+
+	else
+		-- Fill buffer with silence.
+		for i=0, instance.bufferSize-1 do
+			for ch=1, instance.channelCount do
+				instance.buffer:setSample(i, ch, 0.0)
+			end
+		end
+	end	
 end
 
 Generator.stream = function(instance) -- TODO
