@@ -250,14 +250,14 @@ function ASource.pause(instance)
 	return true
 end
 
-function ASource.stop(instance)
-	instance.isPlaying = false
-	instance.pointer   = 0
+function ASource.rewind(instance)
+	instance.pointer = instance.timeDilation >= 0 and 0 or instance.data:getSampleCount()-1
 	return true
 end
 
-function ASource.rewind(instance)
-	instance.pointer = 0
+function ASource.stop(instance)
+	instance:pause()
+	instance:rewind()
 	return true
 end
 
