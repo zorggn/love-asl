@@ -241,12 +241,12 @@ end
 
 -- State manipulation
 function ASource.play(instance)
-	instance.isPlaying = true
+	instance._isPlaying = true
 	return true
 end
 
 function ASource.pause(instance)
-	instance.isPlaying = false
+	instance._isPlaying = false
 	return true
 end
 
@@ -262,7 +262,7 @@ function ASource.rewind(instance)
 end
 
 function ASource.isPlaying(instance)
-	return instance.isPlaying
+	return instance._isPlaying
 end
 
 function ASource.seek(instance, position, unit)
@@ -679,7 +679,7 @@ new = function(a, b, c, d)
 	asource.orig           =   nil -- used for cloning (deep-copying) internal SD or DC objects...
 	asource.type           =   nil
 
-	asource.isPlaying      = false
+	asource._isPlaying     = false
 
 	asource.bitDepth       =     8
 	asource.bufferCount    =     8 -- OALS internal buffer count; unrelated to most things here.
