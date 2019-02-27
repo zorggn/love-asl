@@ -442,7 +442,7 @@ function ASource.setPitchShift(instance, amount, unit)
 	-- needs special exception for second value logic
 
 	--[[
-		ok  0.0,  N/A  ->  0.0,   0.0  * buffer.size -- -inf semitones (true stop)
+		ok  0.0,  N/A  ->  0.0,   0.0  * buffer.size -- -inf semitones (true stop) -- not possible.
 		    ----------------------------------------
 		ok  0.5,  N/A  ->  0.5,  -any  * buffer.size -- -12  semitones forwards
 		ok  0.75, N/A  ->  0.75, -any  * buffer.size -- -~6  semitones forwards
@@ -464,8 +464,8 @@ function ASource.setPitchShift(instance, amount, unit)
 
 	assert(PitchUnit[unit],
 		("Pitch shift unit %s unsupported."):format(tostring(unit)))
-	if (unit == 'ratio') and (amount < 0) then
-		error("Pitch shift amount can't be lower than 0.")
+	if (unit == 'ratio') and (amount <= 0) then
+		error("Pitch shift amount can't be lower or equal to 0.")
 	end
 
 	instance.pitchShift = (unit == 'ratio') and 
