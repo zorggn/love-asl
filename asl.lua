@@ -205,10 +205,13 @@ function ASource.clone(instance)
 
 	-- Deep-copy specific fields that need it.
 
-	-- .data -> not an issue if it's a SoundData, if it's a Decoder, it is an issue.
+	-- .data -> if it's a SoundData, then it doesn't need to be duplicated since we don't allow
+	--          messing with the contents, however, if it's a Decoder, it's a bigger issue.
+	--          (race-conditions, anyone?)
 	if clone.data:type() == 'Decoder' then
+		-- This means it came from a (Dropped)File.
 		if instance.orig then
-			clone.data = love.sound.newDecoder()
+			clone.data = love.sound.newDecoder(instance.orig)
 		else
 			-- Decoder objects do have a clone method in the source code of löve, but it's not
 			-- exposed.
@@ -712,7 +715,7 @@ new = function(a, b, c, d)
 				asource._type = 'static'
 				asource.data = love.sound.newSoundData(b)
 				asource.orig = b
-			elseif b == 'stream' then
+			elseif a == 'stream' then
 				asource._type = 'stream'
 				asource.data = love.sound.newDecoder(b)
 				asource.orig = b
@@ -720,11 +723,11 @@ new = function(a, b, c, d)
 				error("Queueable Sources can't be created from file or filepath.")
 			end
 		end
-	elseif a.type and a:type() == 'SoundData' then
+	elseif a.type and a:type() == 'SoundData' then -- shallow copy; uses the same SoundData object!
 		asource._type = 'static'
 		asource.data = a
 		asource.orig = asource.data
-	elseif a.type and a:type() == 'Decoder' then
+	elseif a.type and a:type() == 'Decoder' then -- shallow copy; uses the same Decoder object!
 		asource._type = 'stream'
 		asource.data = a
 		asource.orig = nil
