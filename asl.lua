@@ -124,9 +124,12 @@ Generator.static = function(instance)
 end
 
 Generator.stream = function(instance) -- TODO
-	-- Probably need to use Decoder:seek; default buffer size is 16384 smps.
-	-- :isSeekable isn't exposed so we'll hope no one tries to open non-seekable vorbis files.
-	-- If pointer goes out of range of decoded samplepoints, we need to decode another batch.
+	-- - Probably need to use Decoder:seek(); default buffer size is 16384 smps.
+	-- - :isSeekable isn't exposed so we'll hope no one tries to open non-seekable vorbis files.
+	-- (alternatively, it should return a value that denotes it failed, instead of erroring...)
+	-- - If pointer goes out of range of decoded samplepoints, we need to decode another batch.
+	-- - Probably keep around a few extra buffers worth of decoded smp-s in the direction we're
+	-- playing the file?
 end
 
 Generator.queue  = function(instance)
@@ -436,19 +439,19 @@ function ASource.setPitchShift(instance, amount, unit)
 	-- needs special exception for second value logic
 
 	--[[
-		ok  0.0,  N/A  ->  0.0,   0.0  * buffer.size -- -inf semitones (true stop) -- not possible.
-		    ----------------------------------------
-		ok  0.5,  N/A  ->  0.5,  -any  * buffer.size -- -12  semitones forwards
-		ok  0.75, N/A  ->  0.75, -any  * buffer.size -- -~6  semitones forwards
-		ok  1.0,  N/A  ->  1.0,  -any  * buffer.size -- +-0  semitones forwards
-		ok  1.5,  N/A  ->  1.5,  -any  * buffer.size -- +~6  semitones forwards
-		ok  2.0,  N/A  ->  2.0,  -any  * buffer.size -- +12  semitones forwards
-		    ----------------------------------------
-		ok  0.5,  N/A  ->  0.5,  +any  * buffer.size -- -12 semitones backwards
-		ok  0.75, N/A  ->  0.75, +any  * buffer.size -- -~6 semitones backwards
-		ok  1.0,  N/A  ->  1.0,  +any  * buffer.size -- +-0 semitones backwards
-		ok  1.5,  N/A  ->  1.5,  +any  * buffer.size -- +~6 semitones backwards
-		ok  2.0,  N/A  ->  2.0,  +any  * buffer.size -- +12 semitones backwards
+		0.0,  N/A  ->  0.0,   0.0  * buffer.size -- -inf semitones (true stop) -- not possible.
+		----------------------------------------
+		0.5,  N/A  ->  0.5,  -any  * buffer.size -- -12  semitones up
+		0.75, N/A  ->  0.75, -any  * buffer.size -- -~6  semitones up
+		1.0,  N/A  ->  1.0,  -any  * buffer.size -- +-0  semitones up
+		1.5,  N/A  ->  1.5,  -any  * buffer.size -- +~6  semitones up
+		2.0,  N/A  ->  2.0,  -any  * buffer.size -- +12  semitones up
+		----------------------------------------
+		0.5,  N/A  ->  0.5,  +any  * buffer.size -- -12 semitones down
+		0.75, N/A  ->  0.75, +any  * buffer.size -- -~6 semitones down
+		1.0,  N/A  ->  1.0,  +any  * buffer.size -- +-0 semitones down
+		1.5,  N/A  ->  1.5,  +any  * buffer.size -- +~6 semitones down
+		2.0,  N/A  ->  2.0,  +any  * buffer.size -- +12 semitones down
 	--]]
 
 	assert(type(amount) == 'number',
@@ -481,19 +484,21 @@ function ASource.setResamplingRatio(instance, ratio)
 	-- rate multiplies both values
 
 	--[[
-		ok  2.0  ->  2.0,  -2.0  * buffer.size --   2x resample forwards  ( 200%, +12st)
-		ok  1.5  ->  1.5,  -1.5  * buffer.size -- 3/2x resample forwards  ( 150%,  +6st)
-		ok  1.0  ->  1.0,  -1.0  * buffer.size --   1x resample forwards  ( 100%,   0st)
-		ok  0.75 ->  0.75, -0.75 * buffer.size -- 3/4x resample forwards  (  75%,  -6st)
-		ok  0.5  ->  0.5,  -0.5  * buffer.size -- 1/2x resample forwards  (  50%, -12st)
-		ok  0.25 ->  0.25, -0.25 * buffer.size -- 1/4x resample forwards  (  25%, -24st)
-		ok  0.0  ->  0.0,   0.0  * buffer.size --   0x resample playback  (true stop)
-		ok  0.25 -> -0.25,  0.25 * buffer.size -- 1/4x resample backwards ( -25%, -24st)
-		ok  0.5  -> -0.5,   0.5  * buffer.size -- 1/2x resample backwards ( -50%, -12st)
-		ok  0.75 -> -0.75,  0.75 * buffer.size -- 3/4x resample backwards ( -75%,  -6st)
-		ok  1.0  -> -1.0,   1.0  * buffer.size --   1x resample backwards (-100%,   0st)
-		ok  1.5  -> -1.5,   1.5  * buffer.size -- 3/2x resample backwards (-150%,  +6st)
-		ok  2.0  -> -2.0,   2.0  * buffer.size --   2x resample backwards (-200%, +12st)
+		2.0  ->  2.0,  -2.0  * buffer.size --   2x resample forwards  ( 200%, +12st)
+		1.5  ->  1.5,  -1.5  * buffer.size -- 3/2x resample forwards  ( 150%,  +6st)
+		1.0  ->  1.0,  -1.0  * buffer.size --   1x resample forwards  ( 100%,   0st)
+		0.75 ->  0.75, -0.75 * buffer.size -- 3/4x resample forwards  (  75%,  -6st)
+		0.5  ->  0.5,  -0.5  * buffer.size -- 1/2x resample forwards  (  50%, -12st)
+		0.25 ->  0.25, -0.25 * buffer.size -- 1/4x resample forwards  (  25%, -24st)
+		----------------------------------
+		0.0  ->  0.0,   0.0  * buffer.size --   0x resample playback  (true stop)
+		----------------------------------
+		0.25 -> -0.25,  0.25 * buffer.size -- 1/4x resample backwards ( -25%, -24st)
+		0.5  -> -0.5,   0.5  * buffer.size -- 1/2x resample backwards ( -50%, -12st)
+		0.75 -> -0.75,  0.75 * buffer.size -- 3/4x resample backwards ( -75%,  -6st)
+		1.0  -> -1.0,   1.0  * buffer.size --   1x resample backwards (-100%,   0st)
+		1.5  -> -1.5,   1.5  * buffer.size -- 3/2x resample backwards (-150%,  +6st)
+		2.0  -> -2.0,   2.0  * buffer.size --   2x resample backwards (-200%, +12st)
 	--]]
 
 	assert(type(ratio) == 'number',
@@ -517,20 +522,22 @@ function ASource.setTimeStretch(instance, ratio)
 	-- above works for 0 as well
 
 	--[[
-		ok  N/A,  2.0  -> +any,  -2.0  * buffer.size -- 200% playback forwards
-		ok  N/A,  1.5  -> +any,  -1.5  * buffer.size -- 150% playback forwards
-		ok  N/A,  1.0  -> +any,  -1.0  * buffer.size -- 100% playback forwards
-		ok  N/A,  0.75 -> +any,  -0.75 * buffer.size --  75% playback forwards
-		ok  N/A,  0.5  -> +any,  -0.5  * buffer.size --  50% playback forwards
-		ok  N/A,  0.25 -> +any,  -0.25 * buffer.size --  25% playback forwards
-		ok  N/A,  0.0  -> +any,   0.0  * buffer.size --   0% playback forwards(stutter)
-		ok  N/A,  0.0  -> -any,   0.0  * buffer.size --   0% playback backwards(stutter)
-		ok  N/A, -0.25 -> -any,   0.25 * buffer.size --  25% playback backwards
-		ok  N/A, -0.5  -> -any,   0.5  * buffer.size --  50% playback backwards
-		ok  N/A, -0.75 -> -any,   0.75 * buffer.size --  75% playback backwards
-		ok  N/A, -1.0  -> -any,   1.0  * buffer.size -- 100% playback backwards
-		ok  N/A, -1.5  -> -any,   1.5  * buffer.size -- 150% playback backwards
-		ok  N/A, -2.0  -> -any,   2.0  * buffer.size -- 200% playback backwards
+		N/A,  2.0  -> +any,  -2.0  * buffer.size -- 200% playback forwards
+		N/A,  1.5  -> +any,  -1.5  * buffer.size -- 150% playback forwards
+		N/A,  1.0  -> +any,  -1.0  * buffer.size -- 100% playback forwards
+		N/A,  0.75 -> +any,  -0.75 * buffer.size --  75% playback forwards
+		N/A,  0.5  -> +any,  -0.5  * buffer.size --  50% playback forwards
+		N/A,  0.25 -> +any,  -0.25 * buffer.size --  25% playback forwards
+		----------------------------------------
+		N/A,  0.0  -> +any,   0.0  * buffer.size --   0% playback forwards(stutter)
+		N/A,  0.0  -> -any,   0.0  * buffer.size --   0% playback backwards(stutter)
+		----------------------------------------
+		N/A, -0.25 -> -any,   0.25 * buffer.size --  25% playback backwards
+		N/A, -0.5  -> -any,   0.5  * buffer.size --  50% playback backwards
+		N/A, -0.75 -> -any,   0.75 * buffer.size --  75% playback backwards
+		N/A, -1.0  -> -any,   1.0  * buffer.size -- 100% playback backwards
+		N/A, -1.5  -> -any,   1.5  * buffer.size -- 150% playback backwards
+		N/A, -2.0  -> -any,   2.0  * buffer.size -- 200% playback backwards
 	--]]
 
 	assert(type(ratio) == 'number',
