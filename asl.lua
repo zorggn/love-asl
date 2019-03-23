@@ -268,21 +268,21 @@ function ASource.seek(instance, position, unit)
 
 	if instance._type == 'static' then
 		if unit == 'samples' then
-			assert(position > 0 and position < instance.data:getSampleCount(),
+			assert(position >= 0 and position < instance.data:getSampleCount(),
 				"Attempted to seek outside of data range.")
 			instance.pointer = position
 		else
-			assert(position > 0 and position < instance.data:getDuration(),
+			assert(position >= 0 and position < instance.data:getDuration(),
 				"Attempted to seek outside of data range.")
 			instance.pointer = math.floor(position * instance.samplingRate)
 		end
 	elseif instance._type == 'stream' then
 		if unit == 'samples' then
-			assert(position > 0 and position < instance.data:getDuration() * instance.samplingRate,
+			assert(position >= 0 and position < instance.data:getDuration() * instance.samplingRate,
 				"Attempted to seek outside of data range.")
 			instance.pointer = position
 		else
-			assert(position > 0 and position < instance.data:getDuration(),
+			assert(position >= 0 and position < instance.data:getDuration(),
 				"Attempted to seek outside of data range.")
 			instance.pointer = math.floor(position * instance.samplingRate)
 		end
@@ -330,9 +330,9 @@ function ASource.setLoopPoints(instance, startpoint, endpoint)
 		"Given end point parameter not a number.")
 	assert(startpoint < endpoint,
 		"Given startpoint parameter must be less than endpoint parameter.")
-	assert(startpoint>0,
+	assert(startpoint >= 0,
 		"Given startpoint parameter must be larger than zero.")
-	assert(endpoint>0,
+	assert(endpoint >= 0,
 		"Given endpoint parameter must be larger than zero.")
 	-- Also assert based on actual audio file loaded... both with static and stream sources.
 	if instance._type == 'static' then
