@@ -734,6 +734,10 @@ new = function(a, b, c, d)
 	elseif type(a) == 'number' then
 		asource._type = 'queue'
 		asource.orig = nil
+		asource.samplingRate = a or asource.samplingRate
+		asource.bitDepth =     b or asource.bitDepth
+		asource.channelCount = c or asource.channelCount
+		asource.bufferCount =  d or asource.bufferCount
 	else 
 		error(("Given parameter %s not suppoted"):format(tostring(a)))
 	end
