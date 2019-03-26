@@ -420,7 +420,6 @@ function ASource.setBufferSize(instance, samplepoints)
 		instance.samplingRate,
 		instance.bitDepth,
 		instance.channelCount)
-	print("Set buffer size to " .. instance.bufferSize)
 end
 
 function ASource.getPitchShift(instance, unit)
