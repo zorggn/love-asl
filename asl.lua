@@ -727,9 +727,9 @@ new = function(a, b, c, d)
 		asource._type = 'static'
 		asource.data = a
 		asource.orig = asource.data
-	elseif a.type and a:type() == 'Decoder' then -- shallow copy; uses the same Decoder object!
+	elseif a.type and a:type() == 'Decoder' then -- shallow copy for now; uses the same Decoder!
 		asource._type = 'stream'
-		asource.data = a
+		asource.data = a -- Waiting on löve to expose Decoder:clone, because race conditions!
 		asource.orig = nil
 	elseif type(a) == 'number' then
 		asource._type = 'queue'
