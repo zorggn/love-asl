@@ -292,7 +292,7 @@ function ASource.seek(instance, position, unit)
 	end
 end
 
-function ASource.tell(instance, position, unit)
+function ASource.tell(instance, unit)
 	assert(TimeUnit[unit],
 		"Unsupported TimeUnit: " .. tostring(unit))
 
