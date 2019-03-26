@@ -411,6 +411,7 @@ function ASource.getBufferSize(instance)
 end
 
 function ASource.setBufferSize(instance, samplepoints)
+	instance.source:stop()
 	assert(type(samplepoints) == 'number' and
 		samplepoints > 0 and samplepoints == math.floor(samplepoints),
 		"Buffer size must be given as a positive nonzero integer.")
@@ -420,6 +421,7 @@ function ASource.setBufferSize(instance, samplepoints)
 		instance.samplingRate,
 		instance.bitDepth,
 		instance.channelCount)
+	instance.source:play()
 end
 
 function ASource.getPitchShift(instance, unit)
