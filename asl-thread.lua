@@ -169,7 +169,6 @@ function ASource.update(instance, dt)
 		Generator[instance._type](instance)
 		instance.source:queue(instance.buffer)
 		instance.source:play()
-		--print"source update"
 	end
 end
 
@@ -798,25 +797,23 @@ while true do
 		-- First value is always a string
 		if type(data) == 'string' then
 
-			--print('Thread:', data)
-
 			if data == 'procThread!' then
+
 				-- Store the next value in queue as this thread's memory address.
 				procThread = toProc:pop()
 
 			elseif data == 'procThread?' then
+
 				-- Send back this thread's memory address using the channel which is the next value
 				-- in the queue.
 				local ch = toProc:pop()
 				ch:push(procThread)
 
 			elseif data == 'new' then
+
 				-- Construct a new ASource using parameters popped from the inbound queue.
 				-- ASource objects themselves store the inbound channel of the thread that
 				-- requested them.
-
-				--print "this got reached"
-
 				local ch, a, b, c, d, id
 				ch = toProc:pop()
 				a  = toProc:pop()
@@ -824,49 +821,36 @@ while true do
 				c  = toProc:pop()
 				d  = toProc:pop()
 
-				--print(ch,a,b,c,d)
-
 				id = new(a, b, c, d)
+
 				-- Send back the ASource object's index through the relevant thread's inbound
 				-- channel.
 				ch:push(id)
-				--print("sent back id " .. id)
 
 			elseif ASource[data] then
-				--print("thread: method call " .. data)
+
 				-- Getters/Setters
-				-- <methodName>, <ch>, <id>, <paramCount>, <parameter1>, ..., <parameterN>
+				-- <methodName> (above), <ch>, <id>, <paramCount>, <parameter1>, ..., <parameterN>
 				local ch = toProc:pop()
-				--print(ch)
 				local id = toProc:pop()
-				--print('id', id)
 				local paramCount = toProc:pop()
-				--print('paramCount', paramCount)
 				local params = {}
 				if paramCount > 0 then
 					for i=1, paramCount do
-						--print("param", i, 'in channel:', toProc:getCount())
 						params[i] = toProc:pop()
-						--print("popped some params", i, params[i])
 					end
 				end
-				
-				--print("Hopefully extant ASource object:", ASList[id])
-				--print("Hopefully extant ASource method:", ASList[id][data])
 
 				local obj
 				for i=1, #ASList do if ASList[i].id == id then obj = ASList[i] break end end
 
 				local retval = {obj[data](obj, unpack(params))}
-				--print("call completed, retvals:", retval)
 
 				ch:performAtomic(function(ch)
 					ch:push(#retval)
-					--print("Thread - Retval count Pushed", #retval)
 					if #retval > 0 then
 						for i=1, #retval do
 							ch:push(retval[i])
-							--print("Thread - Retval Pushed", i, retval[i])
 						end
 					end
 				end)

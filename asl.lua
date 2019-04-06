@@ -24,16 +24,13 @@ local toHere = love.thread.newChannel()
 
 -- Use a named channel to test for the existence of the processing thread; if it exists, use that.
 local toProc = love.thread.getChannel('zorg.asl.procThread')
---print(toProc)
 
 toProc:performAtomic(function(ch)
 	ch:push('procThread?')
 	ch:push(toHere)
 end)
---print "pushed procthread query"
 
 procThread = toHere:demand(0.1)
---print("demanded thread: " .. tostring(procThread))
 
 if not procThread then
 	procThread = love.thread.newThread(path .. 'asl-thread.lua')
@@ -42,7 +39,6 @@ if not procThread then
 		ch:push('procThread!')
 		ch:push(procThread)
 	end)
-	--print "Created procthread since it didnt exist."
 end
 
 -- List of methods supported by an ASource, and parameter and retval counts.
@@ -122,13 +118,9 @@ method.typeOf = true
 local transfer = function(instance, ...)
 	local arg = {...}
 
-	--print('transfer fx', instance.methodCall[1], instance, arg)
-
-	--print('#arg:',#arg)
-
 	-- Do thread stuff
 	toProc:performAtomic(function(ch)
-		-- The method name... it's hackish this way, but it works.
+		-- The method name... hackish; see below in the mt metatable.
 		ch:push(instance.methodCall[1])
 		-- Send retvals (if any) back into this thread.
 		ch:push(toHere)
@@ -140,10 +132,8 @@ local transfer = function(instance, ...)
 		if #arg>0 then
 			for i=1, #arg do
 				ch:push(arg[i])
-				--print('pushed arg:', i, arg[i])
 			end
 		end
-		--print("push complete")
 	end)
 
 	table.remove(instance.methodCall, 1)
@@ -153,7 +143,6 @@ local transfer = function(instance, ...)
 	-- Return values returned by proc. thread.
 	local retval = {}
 	local retvalCount = toHere:demand()
-	--print("Main - received retval count", retvalCount)
 
 	-- Allow chaining calls as long as they're not getters.
 	if retvalCount == 0 then return instance end
@@ -166,7 +155,6 @@ end
 
 -- Route all method calls to the transfer function.
 local mt = {__index = function(instance, m)
-	--print('metatable', instance, m)
 	if method[m] then
 		-- Hack: Add the current method's name to the proxy instance so we can refer to that in
 		--       the transfer function... also due to how metamethod indexing works, we actually
@@ -182,10 +170,7 @@ local new = function(a,b,c,d)
 
 	-- For some reason, the toHere channel returns back 1 element, but only here, and it's a nil...
 	if toHere:getCount() > 0 then
-		--print(toHere:getCount())
-		local the_fuck = toHere:pop()
-		--print('the fuck?: ', the_fuck)
-		--print(toHere:getCount())
+		toHere:clear()
 	end
 
 	-- Send construction request to proc thread.
@@ -197,9 +182,6 @@ local new = function(a,b,c,d)
 		ch:push(c)
 		ch:push(d)
 	end)
-	--print "pushed new"
-
-	--print(toHere:getCount())
 
 	-- Create hollow instance.
 	local asource = {}
@@ -212,15 +194,11 @@ local new = function(a,b,c,d)
 	setmetatable(asource, mt)
 
 	-- Save the returned object id since we'll be using that.
-	--print(toHere:getCount())
 	asource.id = toHere:demand()
-	--print('asource id:' .. tostring(asource.id))
 	
 	--------------
 	return asource
 end
-
---print('procthread:', procThread)
 
 -- Successfully loaded library, make it available both ways.
 love.audio.newAdvancedSource = new
