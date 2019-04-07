@@ -33,7 +33,7 @@ end)
 procThread = toHere:demand(0.1)
 
 if not procThread then
-	procThread = love.thread.newThread(path .. 'asl-thread.lua')
+	procThread = love.thread.newThread(path:gsub('%.','%/') .. '/asl-thread.lua')
 	procThread:start(toProc)
 	toProc:performAtomic(function(ch)
 		ch:push('procThread!')
