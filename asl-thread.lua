@@ -191,9 +191,8 @@ function ASource.clone(instance)
 			-- This means it came from a (Dropped)File.
 			clone.data = love.sound.newDecoder(instance.orig)
 		else
-			-- Decoder objects do have a clone method in the source code of löve, but it's not
-			-- exposed.
-			error("Original Source was created from a Decoder directly, can't clone that (atm).")
+			-- We can just clone the decoder (since löve 11.3)
+			clone.data = instance.data:clone()
 		end
 	end
 

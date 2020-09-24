@@ -1,12 +1,15 @@
 -- Advanced Source Library
 -- The /other/ A/S/L. :3
--- by zorg § ISC @ 2018-2019
+-- by zorg § ISC @ 2018-2020
 
 -- Safeguards
-assert(select(1, love.getVersion()) >= 11,
-	"This library needs at least LÖVE 11.0.0 to function.")
-assert(love.audio and love.sound,
-	"This library needs both love.audio and love.sound enabled to function.")
+do
+	local M,m,r = love.getVersion()
+	assert((M == 11 and m >= 3) or M >= 12,
+		"This library needs at least LÖVE 11.3.0 to function.")
+	assert(love.audio and love.sound,
+		"This library needs both love.audio and love.sound enabled to function.")
+end
 
 -- Relative require in the thread code.
 local path = ...
