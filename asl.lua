@@ -5,7 +5,7 @@
 -- Safeguards
 assert(select(1, love.getVersion()) >= 11,
 	"This library needs at least LÖVE 11.0.0 to function.")
-assert(love.audio or love.sound,
+assert(love.audio and love.sound,
 	"This library needs both love.audio and love.sound enabled to function.")
 
 -- Relative require in the thread code.
