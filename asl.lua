@@ -138,7 +138,7 @@ local transfer = function(instance, ...)
 
 	table.remove(instance.methodCall, 1)
 
-	if not procThread:isRunning() then print(procThread:getError()) end
+	if not procThread:isRunning() then error(procThread:getError()) end
 
 	-- Return values returned by proc. thread.
 	local retval = {}
