@@ -76,6 +76,7 @@ Generator.static = function(instance)
 
 			-- Calculate next buffer-internal pointer.
 			p = (p + instance.innerOffset)
+
 			if instance.looping then
 				if instance.timeDilation >= 0 then
 					while p > instance.endpoint do
