@@ -132,10 +132,12 @@ end
 Generator.stream = function(instance) -- TODO
 	-- - Probably need to use Decoder:seek(); default buffer size is 16384 smps.
 	-- - :isSeekable isn't exposed so we'll hope no one tries to open non-seekable vorbis files.
+	-- - 2019 EDIT: :isSeekable is now exposed... but Decoders load the whole file into RAM...
 	-- (alternatively, it should return a value that denotes it failed, instead of erroring...)
 	-- - If pointer goes out of range of decoded samplepoints, we need to decode another batch.
 	-- - Probably keep around a few extra buffers worth of decoded smp-s in the direction we're
 	-- playing the file?
+	-- - We also need to somehow get the correct sample offset of the returned SoundData...
 end
 
 Generator.queue  = function(instance)
@@ -401,7 +403,7 @@ function ASource.getType(instance)
 	return instance._type
 end
 
--- Time-domain manipulation
+
 function ASource.getBufferSize(instance)
 	return instance.bufferSize
 end
@@ -420,6 +422,7 @@ function ASource.setBufferSize(instance, samplepoints)
 	instance.source:play()
 end
 
+-- Time-domain manipulation
 function ASource.getPitchShift(instance, unit)
 	if unit == nil then unit = 'ratio' end
 
