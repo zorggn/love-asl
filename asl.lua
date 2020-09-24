@@ -82,6 +82,9 @@ method.getType = true
 method.getBufferSize = true
 method.setBufferSize = true
 
+method.getWindowSize = true
+method.setWindowSize = true
+
 method.getPitchShift = true
 method.setPitchShift = true
 method.getResamplingRatio = true

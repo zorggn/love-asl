@@ -101,24 +101,29 @@ Generator.static = function(instance)
 					return
 				end
 			end
-		end
 
-		-- Calculate next buffer-external pointer.
-		if instance.looping then
-			instance.pointer = (instance.pointer - (instance.outerOffset * instance.bufferSize))
-			if instance.timeDilation >= 0 then
-				while instance.pointer > instance.endpoint do
-					instance.pointer = instance.pointer - (instance.endpoint - instance.startpoint)
+			instance.windowCtr = instance.windowCtr + 1
+			--print(w)
+			if instance.windowCtr >= instance.windowSize then
+				-- Calculate next buffer-external pointer.
+				if instance.looping then
+					instance.pointer = (instance.pointer - (instance.outerOffset * instance.windowSize))
+					if instance.timeDilation >= 0 then
+						while instance.pointer > instance.endpoint do
+							instance.pointer = instance.pointer - (instance.endpoint - instance.startpoint)
+						end
+					else
+						while instance.pointer < instance.startpoint do
+							instance.pointer = instance.pointer + (instance.endpoint - instance.startpoint)
+						end
+					end
+				else
+					instance.pointer = (instance.pointer - (instance.outerOffset * instance.windowSize))
 				end
-			else
-				while instance.pointer < instance.startpoint do
-					instance.pointer = instance.pointer + (instance.endpoint - instance.startpoint)
-				end
+				instance.pointer = instance.pointer % instance.data:getSampleCount()
+				instance.windowCtr = instance.windowCtr - instance.windowSize
 			end
-		else
-			instance.pointer = (instance.pointer - (instance.outerOffset * instance.bufferSize))
 		end
-		instance.pointer = instance.pointer % instance.data:getSampleCount()
 
 	else
 		-- Fill buffer with silence.
@@ -257,6 +262,7 @@ end
 function ASource.stop(instance)
 	instance:pause()
 	instance:rewind()
+	--instance.windowCtr = 0
 	return true
 end
 
@@ -420,6 +426,17 @@ function ASource.setBufferSize(instance, samplepoints)
 		instance.bitDepth,
 		instance.channelCount)
 	instance.source:play()
+end
+
+function ASource.getWindowSize(instance)
+	return instance.windowSize
+end
+
+function ASource.setWindowSize(instance, samplepoints)
+	assert(type(samplepoints) == 'number' and
+		samplepoints > 0 and samplepoints == math.floor(samplepoints),
+		"Window size must be given as a positive nonzero integer.")
+	instance.windowSize = samplepoints
 end
 
 -- Time-domain manipulation
@@ -689,6 +706,8 @@ new = function(a, b, c, d)
 	asource.samplingRate   =  8000
 
 	asource.bufferSize     =  2048 -- Seems optimal for time stretching w/ a samp.rate of 44.1kHz.
+	asource.windowSize     =  2048 -- Only this should affect time domain stuff, not bufferSize.
+	asource.windowCtr      =     0 -- buffersize decoupling; if >= windowSize -> ext ptr update.
 	asource.pitchShift     =     1 -- 1 means no pitch modification; tied with parameter below.
 	asource.pitchShiftSt   =     0 -- 0 means no semitone offset; tied with parameter above.
 	asource.resampleRatio  =     1 -- 1 means regular rate.
