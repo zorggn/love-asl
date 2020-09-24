@@ -33,6 +33,8 @@ end)
 procThread = toHere:demand(0.1)
 
 if not procThread then
+	toProc:clear() -- clear toProc queue since query events never got processed... duh.
+
 	procThread = love.thread.newThread(path:gsub('%.','%/') .. '/asl-thread.lua')
 	procThread:start(toProc)
 	toProc:performAtomic(function(ch)
@@ -164,14 +166,9 @@ local mt = {__index = function(instance, m)
 	end
 end}
 
--- Returns a kind of proxy object that utilizes metamethods to transfer calls to methods over to
+-- Returns a proxy object that utilizes metamethods to transfer calls to methods over to
 -- the processing thread.
 local new = function(a,b,c,d)
-
-	-- For some reason, the toHere channel returns back 1 element, but only here, and it's a nil...
-	if toHere:getCount() > 0 then
-		toHere:clear()
-	end
 
 	-- Send construction request to proc thread.
 	toProc:performAtomic(function(ch)
