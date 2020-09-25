@@ -5,7 +5,7 @@ Advanced Source Library
 
 ASL is a threaded wrapper on Löve Source objects; it adds extra functionality to them.
 
-Currently supported Löve versions: 11.x
+Currently supported Löve version(s): 11.3
 
 ### Usage
 
