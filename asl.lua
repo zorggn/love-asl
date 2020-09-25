@@ -143,11 +143,15 @@ local transfer = function(instance, ...)
 
 	table.remove(instance.methodCall, 1)
 
-	if not procThread:isRunning() then error(procThread:getError()) end
-
-	-- Return values returned by proc. thread.
+	-- Return values returned by proc. thread; combined with error handling,
+	-- because threads are asnync & demanding would freeze the current thread.
 	local retval = {}
-	local retvalCount = toHere:demand()
+	local retvalCount
+	while not retvalCount do
+		retvalCount = toHere:pop()
+		local threadError = procThread:getError()
+		if threadError then error(threadError) end
+	end
 
 	-- Allow chaining calls as long as they're not getters.
 	if retvalCount == 0 then return instance end
