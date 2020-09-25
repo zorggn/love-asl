@@ -269,6 +269,8 @@ function ASource.seek(instance, position, unit)
 	assert(instance._type ~= 'queue',
 		"Can't seek Queuable sources.")
 
+	unit = unit or 'seconds'
+
 	assert(TimeUnit[unit],
 		"Unsupported TimeUnit: " .. tostring(unit))
 
@@ -373,6 +375,8 @@ function ASource.getChannelCount(instance)
 end
 
 function ASource.getDuration(instance, unit)
+	unit = unit or 'seconds'
+
 	assert(TimeUnit[unit],
 		"Unsupported TimeUnit: " .. tostring(unit))
 
@@ -424,7 +428,7 @@ end
 
 -- Time-domain manipulation
 function ASource.getPitchShift(instance, unit)
-	if unit == nil then unit = 'ratio' end
+	unit = unit or 'ratio'
 
 	assert(PitchUnit[unit],
 		("Pitch shift unit %s unsupported."):format(tostring(unit)))
@@ -462,7 +466,7 @@ function ASource.setPitchShift(instance, amount, unit)
 	assert(type(amount) == 'number',
 		"Pitch shifting amount must be a number.")
 
-	if unit == nil then unit = 'ratio' end
+	unit = unit or 'ratio'
 
 	assert(PitchUnit[unit],
 		("Pitch shift unit %s unsupported."):format(tostring(unit)))
