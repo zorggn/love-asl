@@ -14,6 +14,10 @@ There are two ways to use this library:
 - `require 'asl'`, then one can use `love.audio.newAdvancedSource` to create an ASource Object.
 - `local new = require 'asl'` which returns the constructor into `new`.
 
+### Considerations
+
+- Since this library does monkeypatch a few things, please don't bug the löve2D developers with issues if you're using this library, before doing some due diligence making sure the error doesn't stem from this library (in which case, do create an issue here for me to solve!)
+
 ### Additions to Source functionality
 
 - Threaded implementation, can be used from multiple threads as well, it will ever only use one internal processing thread.
