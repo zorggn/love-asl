@@ -1,6 +1,6 @@
 -- Advanced Source Library
 -- Processing Thread
--- by zorg § ISC @ 2018-2019
+-- by zorg § ISC @ 2018-2021
 
 -- Needed löve modules in this thread.
 require('love.thread')
