@@ -27,6 +27,11 @@ local SourceType = {['static'] = true,  ['stream']    = true, ['queue'] = true}
 local PitchUnit  = {['ratio']  = true,  ['semitones'] = true}
 local TimeUnit   = {['seconds'] = true, ['samples']   = true}
 
+local PanLaws = {
+	gain  = function(pan) return                           pan,                       1.0-pan end,
+	power = function(pan) return math.sin(math.pi / 2.0) * pan, math.cos(math.pi / 2.0) * pan end
+}
+
 -- This is the default push-style API for Queueable Sources, that may be overridden by a
 -- pull-styled one.
 local Queue = function(instance, buffer)
@@ -64,13 +69,28 @@ Generator.static = function(instance)
 	local p = instance.pointer
 
 	if instance._isPlaying then
+
+		-- Stereo Panning implementation #1
+		local pan = {}
+		if instance.channelCount == 2 then
+			pan[1], pan[2] = instance.panlawfunc(instance.pan)
+		end
+
 		for i=0, instance.bufferSize-1 do
 
 			-- Copy samplepoints to buffer.
 			local smp = 0.0
 			for ch=1, instance.channelCount do
+				-- Currently no interpolation
 				smp = instance.data:getSample(math.floor(p), ch)
+
+				-- Clamp for safety
 				smp = math.min(math.max(smp, -1), 1)
+
+				-- Stereo Panning implementation
+				smp = smp * pan[ch]
+
+				-- Finalize
 				instance.buffer:setSample(i, ch, smp)
 			end
 
@@ -636,7 +656,50 @@ end
 function ASource.setVolume(instance, ...)
 	return instance.source:setVolume(...)
 end
+
+-- Stereo Panning related
+function ASource.getPanning(instance)
+	return instance.pan
 end
+
+function ASource.setPanning(instance, balance)
+	if balance < 0.0 or balance > 1.0 then
+		error "Panning values must be between 0 and 1!"
+	end
+	instance.pan = balance
+end
+
+function ASource.getPanLaw(instance)
+	return instance.panlaw == 'custom' and instance.panlawfunc or instance.panlaw
+end
+
+function ASource.setPanLaw(instance, law)
+	if type(law) == 'string' and not (law == 'gain' or law == 'power') then
+		error "Given panning law string not supported; must be 'gain' or 'power'!"
+	end
+	if type(law) == 'function' then
+		-- Test given function with some inputs
+		for i,v in ipairs{0.00, 0.25, 0.33, 0.50, 0.67, 1.00} do
+			local ok, l,r = pcall(law, v)
+			if not ok then
+				error(("The given pan law function is errorenous: %s"):format(l))
+			else
+				if type(l) ~= 'number' or type(r) ~= 'number' then
+					error "The given pan law function must return two numbers!"
+				else
+					if l < 0.0 or l > 1.0 or r < 0.0 or r > 1.0 then
+						error "The given pan law function's return values must be between 0.0 and 1.0!"
+					end
+				end
+			end
+		end
+		if type('law') == 'string' then
+			instance.panlaw = law
+			instance.panlawfunc = PanLaws[law]
+		else
+			instance.panlaw = 'custom'
+			instance.panlawfunc = law
+		end
 end
 
 -- Object super overrides
@@ -707,6 +770,10 @@ new = function(a, b, c, d)
 	asource.looping        = false
 	asource.startpoint     =     0 -- In samplepoints.
 	asource.endpoint       =     0 -- In samplepoints.
+
+	asource.pan            =   0.5 -- Percentage control of Stereo Panning.
+	asource.panlaw         = 'gain' -- Panning law to use; either the strings 'gain' or 'power', or 'custom' for an arbitrary function(pan) -> Lattenuation,Rattenuation
+	asource.panlawfunc     = PanLaws.gain -- Hold onto the func ptr to make things simpler.
 
 	-- Handle specific cases just as how vanilla Source objects are handled.
 	if type(a) == 'string' then

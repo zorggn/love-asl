@@ -47,6 +47,12 @@ There are two ways to use this library:
 - `Source:getTimeStretch` added.
 - `Source:setTimeStretch` added, with parameter `ratio` as a ratio; modifies playback speed only.
 
+- `Source:getPanning` added.
+- `Source:setPanning` added, 0.0 is full left, 1.0 is full right, 0.5 is centered; the curve is defined by the specific panning law selected. Default is `0.5`.
+- `Source:getPanLaw` added.
+- `Source:setPanLaw` added with parameter `law`, which can be one of the following strings: `gain, power` or a custom function taking a number within the range [0,1] as input, and returning two numbers in the domain [0,1] that scale the left and right channels respectively. Default is `gain`.
+The two laws are constant-gain/amplitude and constant-power/loudness laws, the first attentuates the volume at the center by -6dB (50%), the second only by -3dB (1/sqrt(2)).
+
 #### Modifications
 - `Source:queue` may now be defined as a "pull-style" callback; if it isn't, it will work as the vanilla "push-style" method.
 - `Object:release` modified to release all extra internals of the new Objects; must be called explicitly if one doesn't want dead objects cluttering up the processing thread.
@@ -62,6 +68,10 @@ There are two ways to use this library:
 #### V2.0
 
 	Refactored lib to be threaded and thread-safe.
+
+#### V2.1
+
+	Added 2D Panning implementation (direct method, not simulated by OpenAL's spatialization APIs)
 
 #### TODO:
 

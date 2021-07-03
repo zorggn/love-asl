@@ -115,6 +115,11 @@ method.setVolumeLimits = true
 method.getVolume = true
 method.setVolume = true
 
+method.getPanning = true
+method.setPanning = true
+method.getPanLaw = true
+method.setPanLaw = true
+
 method.release = true
 method.type = true
 method.typeOf = true
