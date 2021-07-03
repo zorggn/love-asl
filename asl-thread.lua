@@ -141,7 +141,7 @@ Generator.stream = function(instance) -- TODO
 	-- - We also need to somehow get the correct sample offset of the returned SoundData...
 end
 
-Generator.queue  = function(instance)
+Generator.queue  = function(instance) -- TODO
 	-- This actually just calls a pull-styled callback; deferring the heavy stuff to the user,
 	-- but only if the user redefined Source:queue to be a callback (i.e. the function's memory
 	-- address is different.)
@@ -149,7 +149,7 @@ Generator.queue  = function(instance)
 		-- This has issues with the threaded approach, since we can't use channels to pass lua 
 		-- functions through.
 		instance.queue(instance.buffer)
-	end-- TODO
+	end
 end
 
 -- Makes pitch shifting and time stretching possible, more or less.
@@ -624,17 +624,19 @@ end
 function ASource.setRelative(instance, ...)
 	return instance.source:setRelative(...)
 end
+function ASource.getVolumeLimits(instance, ...)
+	return instance.source:getVolumeLimits(...)
+end
+function ASource.setVolumeLimits(instance, ...)
+	return instance.source:setVolumeLimits(...)
+end
 function ASource.getVolume(instance, ...)
 	return instance.source:getVolume(...)
 end
 function ASource.setVolume(instance, ...)
 	return instance.source:setVolume(...)
 end
-function ASource.getVolumeLimits(instance, ...)
-	return instance.source:getVolumeLimits(...)
 end
-function ASource.setVolumeLimits(instance, ...)
-	return instance.source:setVolumeLimits(...)
 end
 
 -- Object super overrides

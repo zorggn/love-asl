@@ -3,7 +3,7 @@ Advanced Source Library
 
 ### Info
 
-ASL is a threaded wrapper on Löve Source objects; it adds extra functionality to them.
+ASL is a threaded wrapper on Löve (Audio) Source objects; it adds extra functionality to them.
 
 Currently supported Löve version(s): 11.3
 
@@ -25,6 +25,7 @@ There are two ways to use this library:
 - Implements custom loop points.
 - Implements rudimentary Time-stretching and Pitch-shifting methods.
 - Implements reverse playback.
+- All methods that don't return any values are chainable.
 
 ### API Changes
 
