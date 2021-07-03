@@ -110,10 +110,10 @@ method.getVelocity = true
 method.setVelocity = true
 method.isRelative = true
 method.setRelative = true
-method.getVolume = true
-method.setVolume = true
 method.getVolumeLimits = true
 method.setVolumeLimits = true
+method.getVolume = true
+method.setVolume = true
 
 method.release = true
 method.type = true
