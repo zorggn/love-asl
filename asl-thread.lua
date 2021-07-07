@@ -700,6 +700,7 @@ function ASource.setPanLaw(instance, law)
 			instance.panlaw = 'custom'
 			instance.panlawfunc = law
 		end
+	end
 end
 
 -- Object super overrides
