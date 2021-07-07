@@ -206,7 +206,10 @@ local new = function(a,b,c,d)
 	setmetatable(asource, mt)
 
 	-- Save the returned object id since we'll be using that.
-	asource.id = toHere:demand()
+	asource.id = toHere:demand(1.0)
+
+	-- Instead of assuming the thread worked, explicitly check for a response.
+	if asource.id == nil then error("Processing thread did not respond.") end
 	
 	--------------
 	return asource
