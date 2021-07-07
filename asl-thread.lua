@@ -888,16 +888,12 @@ new = function(a, b, c, d)
 	-- Add source to internal list
 	asource.id = #ASList+1
 	ASList[asource.id] = asource
-
-	--print 'Source object hopefully created neatly.'
 	
 	--------------
 	return asource.id
 end
 
 -------------------------------
-
---print "procthread exists!"
 
 while true do
 
