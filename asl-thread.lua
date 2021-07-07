@@ -28,8 +28,8 @@ local PitchUnit  = {['ratio']  = true,  ['semitones'] = true}
 local TimeUnit   = {['seconds'] = true, ['samples']   = true}
 
 local PanLaws = {
-	gain  = function(pan) return                           pan,                       1.0-pan end,
-	power = function(pan) return math.sin(math.pi / 2.0) * pan, math.cos(math.pi / 2.0) * pan end
+	gain  = function(pan) return                    1.0  - pan,                           pan end,
+	power = function(pan) return math.cos(math.pi / 2.0) * pan, math.sin(math.pi / 2.0) * pan end
 }
 
 -- This is the default push-style API for Queueable Sources, that may be overridden by a
