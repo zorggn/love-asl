@@ -53,7 +53,7 @@ There are two ways to use this library:
 - `Source:setPanLaw` added with parameter `law`, which can be one of the following strings: `gain, power` or a custom function taking a number within the range [0,1] as input, and returning two numbers in the domain [0,1] that scale the left and right channels respectively. Default is `gain`.
 The two laws are constant-gain/amplitude and constant-power/loudness laws, the first attentuates the volume at the center by -6dB (50%), the second only by -3dB (1/sqrt(2)).
 - `Source:getStereoSeparation` added.
-- `Source:setStereoSeparation` added, 0.0 means both channels are mixed down to monaural (mono), 1.0 means the original stereo signal is kept. Default is `0.5`.
+- `Source:setStereoSeparation` added, 0.0 means both channels are mixed down to monaural (mono), 1.0 means the original stereo signal is kept. Default is `1.0`.
 
 #### Modifications
 - `Source:queue` may now be defined as a "pull-style" callback; if it isn't, it will work as the vanilla "push-style" method.
