@@ -120,6 +120,9 @@ method.setPanning = true
 method.getPanLaw = true
 method.setPanLaw = true
 
+method.getStereoSeparation = true
+method.setStereoSeparation = true
+
 method.release = true
 method.type = true
 method.typeOf = true

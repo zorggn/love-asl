@@ -79,19 +79,42 @@ Generator.static = function(instance)
 		for i=0, instance.bufferSize-1 do
 
 			-- Copy samplepoints to buffer.
-			local smp = 0.0
-			for ch=1, instance.channelCount do
+			if instance.channelCount == 1 then
+				local smp = 0.0
+				
 				-- Currently no interpolation
-				smp = instance.data:getSample(math.floor(p), ch)
+				smp = instance.data:getSample(math.floor(p))
 
 				-- Clamp for safety
 				smp = math.min(math.max(smp, -1), 1)
 
-				-- Stereo Panning implementation
-				smp = smp * pan[ch]
-
 				-- Finalize
-				instance.buffer:setSample(i, ch, smp)
+				instance.buffer:setSample(i, smp)
+
+			else--if instance.channelCount == 2 then
+				local smpL, smpR = 0.0, 0.0
+
+				-- Currently no interpolation
+				smpL = instance.data:getSample(math.floor(p), 1)
+				smpR = instance.data:getSample(math.floor(p), 2)
+	
+				-- Stereo Separation implementation
+				local M = (smpL + smpR) * 0.5
+				local S = (smpL - smpR) * 0.5
+				smpL = M + S * instance.separation
+				smpR = M - S * instance.separation
+	
+				-- Stereo Panning implementation
+				smpL = smpL * pan[1]
+				smpR = smpR * pan[2]
+	
+				-- Clamp for safety
+				smpL = math.min(math.max(smpL, -1), 1)
+				smpR = math.min(math.max(smpR, -1), 1)
+	
+				-- Finalize
+				instance.buffer:setSample(i, 1, smpL)
+				instance.buffer:setSample(i, 2, smpR)
 			end
 
 			-- Calculate next buffer-internal pointer.
@@ -703,6 +726,18 @@ function ASource.setPanLaw(instance, law)
 	end
 end
 
+-- Stereo Separation related
+function ASource.getStereoSeparation(instance)
+	return instance.separation
+end
+
+function ASource.setStereoSeparation(instance, ssep)
+	if ssep < 0.0 or ssep > 1.0 then
+		error "Stereo Separation values must be between 0 and 1!"
+	end
+	instance.separation = ssep
+end
+
 -- Object super overrides
 function ASource.release(instance)
 	-- Clean up the whole ASource, not just the internal Source object.
@@ -772,6 +807,7 @@ new = function(a, b, c, d)
 	asource.startpoint     =     0 -- In samplepoints.
 	asource.endpoint       =     0 -- In samplepoints.
 
+	asource.separation     =   1.0 -- Percentage control of Stereo Separation.
 	asource.pan            =   0.5 -- Percentage control of Stereo Panning.
 	asource.panlaw         = 'gain' -- Panning law to use; either the strings 'gain' or 'power', or 'custom' for an arbitrary function(pan) -> Lattenuation,Rattenuation
 	asource.panlawfunc     = PanLaws.gain -- Hold onto the func ptr to make things simpler.
