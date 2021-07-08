@@ -104,7 +104,7 @@ Generator.static = function(instance)
 				smpL = M + S * instance.separation
 				smpR = M - S * instance.separation
 	
-				-- Stereo Panning implementation
+				-- Stereo Panning implementation #2
 				smpL = smpL * pan[1]
 				smpR = smpR * pan[2]
 	
