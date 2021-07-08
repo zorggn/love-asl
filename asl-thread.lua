@@ -51,12 +51,47 @@ local Queue = function(instance, buffer)
 		instance.bitDepth,
 		instance.channelCount)
 
-	-- May not be the most performant, but then again, the pull-style should be used anyway.	
-	for i=0, buffer:getSampleCount()-1 do
-		instance.buffer:setSample(i, buffer:getSample(i))
+	-- May not be the most performant, but then again, the pull-style should be used anyway.
+	if instance.channelCount == 1 then
+		for i=0, buffer:getSampleCount()-1 do
+			instance.buffer:setSample(i, buffer:getSample(i))
+		end
+	else--if instance.channelCount == 2 then
+
+		-- We need to apply our own supported effects on the queue type as well... at least those that we can.
+		-- Currently, that means Stereo Separation and Stereo Panning.
+		-- Time Stretching and Pitch Shifting might be possible, but AFAIK the push-style API just can't handle arbitrary buffer shrinking/expanding.
+
+		-- Stereo Panning implementation #1
+		local pan = {}
+		pan[1], pan[2] = instance.panlawfunc(instance.pan)
+
+		for i=0, buffer:getSampleCount()-1 do
+			-- No need to interpolate due to TS/PS functionality not being available...
+			local smpL, smpR = buffer:getSample(i, 1), buffer:getSample(i, 2)
+
+			-- Stereo Separation implementation
+			local M = (smpL + smpR) * 0.5
+			local S = (smpL - smpR) * 0.5
+			smpL = M + S * instance.separation
+			smpR = M - S * instance.separation
+
+			-- Stereo Panning implementation #2
+			smpL = smpL * pan[1]
+			smpR = smpR * pan[2]
+
+			-- Clamp for safety
+			smpL = math.min(math.max(smpL, -1), 1)
+			smpR = math.min(math.max(smpR, -1), 1)
+
+			-- Finalize
+			instance.buffer:setSample(i, 1, smpL)
+			instance.buffer:setSample(i, 2, smpR)
+		end
 	end
 
 	instance.source:queue(instance.buffer)
+	-- No play call here; vanilla QSources didn't automatically play either.
 
 	return true
 end
@@ -170,7 +205,9 @@ Generator.static = function(instance)
 				instance.buffer:setSample(i, ch, 0.0)
 			end
 		end
-	end	
+	end
+	instance.source:queue(instance.buffer)
+	instance.source:play()
 end
 
 Generator.stream = function(instance) -- TODO
@@ -182,16 +219,66 @@ Generator.stream = function(instance) -- TODO
 	-- - Probably keep around a few extra buffers worth of decoded smp-s in the direction we're
 	-- playing the file?
 	-- - We also need to somehow get the correct sample offset of the returned SoundData...
+
+	--instance.source:queue(instance.buffer)
+	--instance.source:play()
 end
 
 Generator.queue  = function(instance) -- TODO
 	-- This actually just calls a pull-styled callback; deferring the heavy stuff to the user,
 	-- but only if the user redefined Source:queue to be a callback (i.e. the function's memory
 	-- address is different.)
-	if instance._type == 'queue' and instance.queue ~= Queue then
-		-- This has issues with the threaded approach, since we can't use channels to pass lua 
-		-- functions through.
-		instance.queue(instance.buffer)
+
+	-- We need to apply our own supported effects on the queue type as well... at least those that we can.
+	-- Currently, that means Stereo Separation and Stereo Panning.
+	-- Time Stretching and Pitch Shifting might be possible, but AFAIK the push-style API just can't handle arbitrary buffer shrinking/expanding.
+
+	if instance._type == 'queue' then
+		if instance.queue ~= Queue then
+			-- This has issues with the threaded approach, since we can't use channels to pass lua 
+			-- functions through.
+			instance.queue(instance.buffer) -- Callback that can be anywhere...
+
+			-- This will bog the processing down a smidge, for stereo sources, that is.
+			if instance.channelCount == 2 then
+
+				-- We need to apply our own supported effects on the queue type as well... at least those that we can.
+				-- Currently, that means Stereo Separation and Stereo Panning.
+				-- Time Stretching and Pitch Shifting might be possible, but AFAIK the push-style API just can't handle arbitrary buffer shrinking/expanding.
+
+				-- Stereo Panning implementation #1
+				local pan = {}
+				pan[1], pan[2] = instance.panlawfunc(instance.pan)
+
+				for i=0, instance.bufferSize-1 do
+					-- No need to interpolate due to TS/PS functionality not being available...
+					local smpL, smpR = instance.buffer:getSample(i, 1), instance.buffer:getSample(i, 2)
+
+					-- Stereo Separation implementation
+					local M = (smpL + smpR) * 0.5
+					local S = (smpL - smpR) * 0.5
+					smpL = M + S * instance.separation
+					smpR = M - S * instance.separation
+
+					-- Stereo Panning implementation #2
+					smpL = smpL * pan[1]
+					smpR = smpR * pan[2]
+
+					-- Clamp for safety
+					smpL = math.min(math.max(smpL, -1), 1)
+					smpR = math.min(math.max(smpR, -1), 1)
+
+					-- Finalize
+					instance.buffer:setSample(i, 1, smpL)
+					instance.buffer:setSample(i, 2, smpR)
+				end
+			end
+
+			instance.source:queue(instance.buffer)
+			instance.source:play()
+		--else-- if instance.queue == Queue then
+			-- Data already pushed, processed, enqueued and set to play.
+		end
 	end
 end
 
@@ -213,8 +300,6 @@ local ASource = {}
 function ASource.update(instance, dt)
 	while instance.source:getFreeBufferCount() > 0 do
 		Generator[instance._type](instance)
-		instance.source:queue(instance.buffer)
-		instance.source:play()
 	end
 end
 
