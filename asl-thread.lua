@@ -716,13 +716,11 @@ function ASource.setPanLaw(instance, law)
 				end
 			end
 		end
-		if type('law') == 'string' then
-			instance.panlaw = law
-			instance.panlawfunc = PanLaws[law]
-		else
-			instance.panlaw = 'custom'
-			instance.panlawfunc = law
-		end
+		instance.panlaw = 'custom'
+		instance.panlawfunc = law
+	else --if type(law) == 'string' then
+		instance.panlaw = law
+		instance.panlawfunc = PanLaws[law]
 	end
 end
 
