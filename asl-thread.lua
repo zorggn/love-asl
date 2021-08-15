@@ -381,7 +381,7 @@ function ASource.pause(instance)
 end
 
 function ASource.rewind(instance)
-	instance.pointer = instance.timeDilation >= 0 and 0 or instance.data:getSampleCount()-1
+	instance.pointer = instance.timeDilation >= 0 and 0 or math.max(0, instance.data:getSampleCount()-1)
 	return true
 end
 
