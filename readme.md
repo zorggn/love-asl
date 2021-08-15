@@ -79,6 +79,10 @@ The two laws are constant-gain/amplitude and constant-power/loudness laws, the f
 
 	Added Stereo Separation implementation.
 
+#### V2.21
+
+	Some fixes regarding range checking and default values, one missing function added (getActiveEffects).
+
 #### TODO:
 
 - Implement advanced functionality to `stream`-type Sources as well, that use Decoders internally.
