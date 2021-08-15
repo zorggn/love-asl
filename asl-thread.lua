@@ -392,6 +392,9 @@ function ASource.stop(instance)
 end
 
 function ASource.isPlaying(instance)
+	-- To those that miss the below functions:
+	-- - isPaused  = not isPlaying
+	-- - isStopped = not isPlaying and (tell() == 0 or tell() == math.max(0, getSampleCount()-1))
 	return instance._isPlaying
 end
 
@@ -576,7 +579,7 @@ end
 
 function ASource.setPitchShift(instance, amount, unit)
 
-	-- range: [0,)
+	-- range: (0,)
 	-- shift amount saved internally
 	-- amount sets first value only
 	-- needs special exception for second value logic
