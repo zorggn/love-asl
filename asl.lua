@@ -93,6 +93,7 @@ method.getEffect = true
 method.setEffect = true
 method.getFilter = true
 method.setFilter = true
+method.getActiveEffects = true
 
 method.getAirAbsorption = true
 method.setAirAbsorption = true

@@ -703,6 +703,10 @@ function ASource.setFilter(instance, ...)
 	return instance.source:setFilter(...)
 end
 
+function ASource.getActiveEffects(instance, ...)
+	return instance.source:getActiveEffects(...)
+end
+
 -- Spatial functionality
 function ASource.getAirAbsorption(instance, ...)
 	return instance.source:getAirAbsorption(...)
