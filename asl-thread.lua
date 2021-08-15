@@ -311,6 +311,9 @@ function ASource.clone(instance)
 		clone[k] = v
 	end
 
+	-- Needs to be in the stopped state by default.
+	clone._isPlaying = false
+
 	-- Deep-copy specific fields that need it.
 
 	-- .data -> if it's a SoundData, then it doesn't need to be duplicated since we don't allow
