@@ -429,6 +429,9 @@ function ASource.seek(instance, position, unit)
 end
 
 function ASource.tell(instance, unit)
+
+	unit = unit or 'seconds'
+
 	assert(TimeUnit[unit],
 		"Unsupported TimeUnit: " .. tostring(unit))
 
