@@ -89,6 +89,9 @@ method.setResamplingRatio = true
 method.getTimeStretch = true
 method.setTimeStretch = true
 
+method.getInterpolationMethod = true
+method.setInterpolationMethod = true
+
 method.getEffect = true
 method.setEffect = true
 method.getFilter = true

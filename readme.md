@@ -23,8 +23,10 @@ There are two ways to use this library:
 - Threaded implementation, can be used from multiple threads as well, it will ever only use one internal processing thread.
 - QueueableSource and Buffer-based timing for accurate playback and position tracking.
 - Implements custom loop points.
-- Implements rudimentary Time-stretching and Pitch-shifting methods.
+- Implements panning and stereo separation support.
+- Implements time-domain time-stretching and pitch-shifting methods.
 - Implements reverse playback.
+- Implements different interpolation methods during modified playback (resampled, stretched, and/or shifted)
 - All methods that don't return any values are chainable.
 
 ### API Changes
@@ -35,17 +37,22 @@ There are two ways to use this library:
 
 #### Additions
 - `Source:rewind` re-added, which is just syntax sugar for `Source:seek(0)`.
+
 - `Source:getLoopPoints` added, returns `startpoint` and `endpoint`, in samplepoints.
 - `Source:setLoopPoints` added with parameters `startpoint` and `endpoint`, in samplepoints.
+
 - `Source:getBitDepth` and `Source:getSampleRate` added.
-- `Source:getBufferSize` added.
-- `Source:setBufferSize` added, buffer sizes can be between 32 and 65536 samplepoints long; default is 2048.
-- `Source:getPitchShift` added with parameter `unit`, in either as a ratio, or in semitones.
-- `Source:setPitchShift` added with parameters `amount` and `unit`, in either as a ratio, or in semitones; modifies pitch only.
+
+- `Source:getBufferSize` added with parameter `unit`, in either samplepoints or milliseconds, the latter being default.
+- `Source:setBufferSize` addedwith parameter `unit`, in either samplepoints or milliseconds, the latter being default; buffer sizes can be between 32 and 65536 samplepoints long; default is ~50 ms equivalent rounded down.
+- `Source:getPitchShift` added with parameter `unit`, in either as a non-negative ratio, or in semitones.
+- `Source:setPitchShift` added with parameters `amount` and `unit`, in either as a non-negative ratio, or in semitones; modifies pitch only.
 - `Source:getResamplingRatio` added.
 - `Source:setResamplingRatio` added, with parameter `ratio` as a ratio; modifies both playback speed and pitch.
 - `Source:getTimeStretch` added.
 - `Source:setTimeStretch` added, with parameter `ratio` as a ratio; modifies playback speed only.
+- `Source:getInterpolationMethod` added.
+- `Source:setInterpolationMethod` added, with parameter `method`, which can be one of the following strings: `nearest, linear, cubic, sinc`.
 
 - `Source:getPanning` added.
 - `Source:setPanning` added, 0.0 is full left, 1.0 is full right, 0.5 is centered; the curve is defined by the specific panning law selected. Default is `0.5`.
@@ -65,28 +72,35 @@ The two laws are constant-gain/amplitude and constant-power/loudness laws, the f
 
 #### V1.0
 
-	Still available in the `non-threaded` branch.
+	- Still available in the `non-threaded` branch.
 
 #### V2.0
 
-	Refactored lib to be threaded and thread-safe.
+	- Refactored lib to be threaded and thread-safe.
 
 #### V2.1
 
-	Added Stereo Panning implementation (direct method, not simulated by OpenAL's spatialization APIs.)
+	- Added Stereo Panning implementation (direct method, not simulated by OpenAL's spatialization APIs.)
 
 #### V2.2
 
-	Added Stereo Separation implementation.
+	- Added Stereo Separation implementation.
 
 #### V2.21
 
-	Some fixes regarding range checking and default values, one missing function added (getActiveEffects).
+	- Some fixes regarding range checking and default values, one missing function added (getActiveEffects).
+
+#### V3.0
+
+	- Complete reimplementation of time-scale modifications to achieve pop-less functionality; it still uses time-domain methods (time-scale modification and resampling) so depending on the settings, it might still sound weird.
+	- Added interpolation methods for higher quality resampling, including cubic hermite spline and 32-tap lanczos sinc implementations.
+	- Changed the behaviour of buffers; they are not recreated on size change anymore; the maximum sized ones will be created, and those can be limited to a smaller range instead.
+	- Added milliseconds unit to the setter and getter of the buffer size.
+	- Changed default buffer size to be equivalent to 50 ms.
 
 #### TODO:
 
 - Implement advanced functionality to `stream`-type Sources as well, that use Decoders internally.
-- Implement some kind of windowing to make pitch shifting & time stretching click/pop less.
 - Maybe Implement tagging support... just to have people use this instead of TESound. (There's Tesselode's Ripple though...)
 
 ### License

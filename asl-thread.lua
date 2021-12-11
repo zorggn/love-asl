@@ -26,11 +26,25 @@ math.sgn = function(x) return x<0 and -1.0 or 1.0 end
 local SourceType = {['static'] = true,  ['stream']    = true, ['queue'] = true}
 local PitchUnit  = {['ratio']  = true,  ['semitones'] = true}
 local TimeUnit   = {['seconds'] = true, ['samples']   = true}
+local BufferUnit = {['milliseconds'] = true, ['samples']   = true}
 
 local PanLaws = {
 	gain  = function(pan) return                    1.0  - pan,                           pan end,
 	power = function(pan) return math.cos(math.pi / 2.0) * pan, math.sin(math.pi / 2.0) * pan end
 }
+
+local ItpMethod  = {[0] = 'nearest', 'linear', 'cubic', 'sinc'}
+local iItpMethod = {}; for i=0,#ItpMethod do iItpMethod[ItpMethod[i]] = i end
+
+local function lanczos_window(x,a)
+	if x == 0 then
+		return 1 -- division by zero protection.
+	elseif x >= -a and x < a then
+		return (a * math.sin(math.pi * x) * math.sin(math.pi * x / a)) / (math.pi ^ 2 * x ^ 2)
+	else
+		return 0 -- brickwall edges outside the region we're using.
+	end
+end
 
 -- This is the default push-style API for Queueable Sources, that may be overridden by a
 -- pull-styled one.
@@ -100,90 +114,300 @@ end
 local Generator = {}
 
 Generator.static = function(instance)
-	
-	local p = instance.pointer
 
-	if instance._isPlaying then
-
-		-- Stereo Panning implementation #1
-		local pan = {}
-		if instance.channelCount == 2 then
-			pan[1], pan[2] = instance.panlawfunc(instance.pan)
+	if not instance._isPlaying then -- Fill buffer with silence.
+		for i=0, instance.frameSize-1 do
+			for ch=1, instance.channelCount do
+				instance.buffer:setSample(i, ch, 0.0)
+			end
 		end
+	else -- Fill buffer with calculated data.
+		local ptr = instance.pointer               -- Current offset in source SoundData (double)
+		local N   = instance.data:getSampleCount() -- Length of source SoundData
 
-		for i=0, instance.bufferSize-1 do
+		-- Calculate next buffer offset.
+		local frame_offset = instance.frameSize * instance.outerOffset
 
-			-- Copy samplepoints to buffer.
+		-- Copy samplepoints to buffer.
+		for i=0, instance.frameSize-1 do
+
+			-- Samplepoint blend amount normalized to [0,1] range across the window.
+			local mix = i / (instance.frameSize-1)
+
+			-- Calculate next samplepoint offset.
+			local next_smp = i * instance.innerOffset
+
 			if instance.channelCount == 1 then
-				local smp = 0.0
-				
-				-- Currently no interpolation
-				smp = instance.data:getSample(math.floor(p))
+				-- Get the correct samplepoints for mixing purposes, with the chosen interpolation method.
+				local A,B = 0.0, 0.0
 
-				-- Clamp for safety
-				smp = math.min(math.max(smp, -1), 1)
+				-------------------------------------------------------------------------------------------------
+				--/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\--
+				-------------------------------------------------------------------------------------------------
 
-				-- Finalize
-				instance.buffer:setSample(i, smp)
+				-- Interpolate source samplepoints.
+				if instance.interpolation == 0 then
+					-- Nearest-Neighbor
+					local offset
+					offset = math.floor(ptr + 0.5 + next_smp) % N
+					A = instance.data:getSample(offset)
+					offset = math.floor(ptr + 0.5 + next_smp + frame_offset) % N
+					B = instance.data:getSample(offset)
+				elseif instance.interpolation == 1 then
+					-- Linear
+					local offset
+					local int,frac
+					offset = ptr + next_smp
+					int    = math.floor(offset)
+					frac   = offset - int
+					A = instance.data:getSample( int   %N) * (1.0 - frac) +
+					    instance.data:getSample((int+1)%N) * frac
+					offset = ptr + next_smp + frame_offset
+					int    = math.floor(offset)
+					frac   = offset - int
+					B = instance.data:getSample( int   % N) * (1.0 - frac) +
+					    instance.data:getSample((int+1)% N) * frac
+				elseif instance.interpolation == 2 then
+					-- Cubic Hermite Spline
+					-- https://blog.demofox.org/2015/08/08/cubic-hermite-interpolation/
+					-- (With some minor simplifications)
+					local offset
+					local int,frac
+					local x,y,z,w
+					local X,Y,Z,W
+					offset = ptr + next_smp
+					int    = math.floor(offset)
+					frac   = offset - int
+					x = instance.data:getSample(math.floor(ptr-1 + next_smp) % N)
+					y = instance.data:getSample(math.floor(ptr   + next_smp) % N)
+					z = instance.data:getSample(math.floor(ptr+1 + next_smp) % N)
+					w = instance.data:getSample(math.floor(ptr+2 + next_smp) % N)
+					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+					Z = -(x * 0.5)             + (z * 0.5)
+					W =               y
+					A = X*frac^3 + Y*frac^2 + Z*frac + W
+					offset = ptr + next_smp + frame_offset
+					int    = math.floor(offset)
+					frac   = offset - int
+					x = instance.data:getSample(math.floor(ptr-1 + next_smp + frame_offset) % N)
+					y = instance.data:getSample(math.floor(ptr   + next_smp + frame_offset) % N)
+					z = instance.data:getSample(math.floor(ptr+1 + next_smp + frame_offset) % N)
+					w = instance.data:getSample(math.floor(ptr+2 + next_smp + frame_offset) % N)
+					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+					Z = -(x * 0.5)             + (z * 0.5)
+					W =               y
+					B = X*frac^3 + Y*frac^2 + Z*frac + W
+				else--if instance.interpolation == 3 then
+					-- Lanczos (Sinc) variants: 32 taps (not counting the main lobe's tap)
+					-- TODO: This still rings more than the cubic, probably an error in implementation.
+					local taps  = 32
+					local result = 0.0
+					local x = (ptr + next_smp) % N
+					for l = -(taps/2), (taps/2) do
+						local i = math.floor(ptr+l + next_smp) % N
+						result = result + instance.data:getSample(i) * lanczos_window(x - i, taps)
+					end
+					A = result
+					local result = 0.0
+					local x = (ptr + next_smp + frame_offset) % N
+					for l = -(taps/2), (taps/2) do
+						local i = math.floor(ptr+l + next_smp + frame_offset) % N
+						result = result + instance.data:getSample(i) * lanczos_window(x - i, taps)
+					end
+					B = result
+				end
 
-			else--if instance.channelCount == 2 then
-				local smpL, smpR = 0.0, 0.0
+				-------------------------------------------------------------------------------------------------
+				--/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\--
+				-------------------------------------------------------------------------------------------------
 
-				-- Currently no interpolation
-				smpL = instance.data:getSample(math.floor(p), 1)
-				smpR = instance.data:getSample(math.floor(p), 2)
-	
-				-- Stereo Separation implementation
-				local M = (smpL + smpR) * 0.5
-				local S = (smpL - smpR) * 0.5
-				smpL = M + S * instance.separation
-				smpR = M - S * instance.separation
-	
-				-- Stereo Panning implementation #2
-				smpL = smpL * pan[1]
-				smpR = smpR * pan[2]
-	
-				-- Clamp for safety
-				smpL = math.min(math.max(smpL, -1), 1)
-				smpR = math.min(math.max(smpR, -1), 1)
-	
-				-- Finalize
-				instance.buffer:setSample(i, 1, smpL)
-				instance.buffer:setSample(i, 2, smpR)
+				-- Apply attenuation to result in a linear mix through the buffer.
+				A = A * (1.0 - mix)
+				B = B * (      mix)
+
+				-- Set the samplepoint value to be the sum of the above two,
+				-- with clamping for safety.
+				instance.buffer:setSample(i, math.min(math.max(A+B, -1.0), 1.0))
+
+			else -- if instance.channelCount == 2 then
+				-- Get the correct samplepoints for mixing purposes, with the chosen interpolation method.
+				local AL, AR, BL, BR = 0.0, 0.0, 0.0, 0.0
+				local L,R = 0.0, 0.0
+
+				-------------------------------------------------------------------------------------------------
+				--/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\--
+				-------------------------------------------------------------------------------------------------
+
+				-- Interpolate source samplepoints.
+				if instance.interpolation == 0 then
+					-- Nearest-Neighbor
+					local offset
+					offset = math.floor(ptr + 0.5 + next_smp) % N
+					AL = instance.data:getSample(offset, 1)
+					AR = instance.data:getSample(offset, 2)
+					offset = math.floor(ptr + 0.5 + next_smp + frame_offset) % N
+					BL = instance.data:getSample(offset, 1)
+					BR = instance.data:getSample(offset, 2)
+				elseif instance.interpolation == 1 then
+					-- Linear
+					local offset
+					local int,frac
+					offset = ptr + next_smp
+					int    = math.floor(offset)
+					frac   = offset - int
+					AL = instance.data:getSample( int   %N, 1) * (1.0 - frac) +
+					     instance.data:getSample((int+1)%N, 1) * frac
+					AR = instance.data:getSample( int   %N, 2) * (1.0 - frac) +
+					     instance.data:getSample((int+1)%N, 2) * frac
+					offset = ptr + next_smp + frame_offset
+					int    = math.floor(offset)
+					frac   = offset - int
+					BL = instance.data:getSample( int   %N, 1) * (1.0 - frac) +
+					     instance.data:getSample((int+1)%N, 1) * frac
+					BR = instance.data:getSample( int   %N, 2) * (1.0 - frac) +
+					     instance.data:getSample((int+1)%N, 2) * frac
+				elseif instance.interpolation == 2 then
+					-- Cubic Hermite Spline
+					-- https://blog.demofox.org/2015/08/08/cubic-hermite-interpolation/
+					-- (With some minor simplifications)
+					local offset
+					local int,frac
+					local x,y,z,w
+					local X,Y,Z,W
+					offset = ptr + next_smp
+					int    = math.floor(offset)
+					frac   = offset - int
+					x = instance.data:getSample(math.floor(ptr-1 + next_smp) % N, 1)
+					y = instance.data:getSample(math.floor(ptr   + next_smp) % N, 1)
+					z = instance.data:getSample(math.floor(ptr+1 + next_smp) % N, 1)
+					w = instance.data:getSample(math.floor(ptr+2 + next_smp) % N, 1)
+					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+					Z = -(x * 0.5)             + (z * 0.5)
+					W =               y
+					AL = X*frac^3 + Y*frac^2 + Z*frac + W
+					x = instance.data:getSample(math.floor(ptr-1 + next_smp) % N, 2)
+					y = instance.data:getSample(math.floor(ptr   + next_smp) % N, 2)
+					z = instance.data:getSample(math.floor(ptr+1 + next_smp) % N, 2)
+					w = instance.data:getSample(math.floor(ptr+2 + next_smp) % N, 2)
+					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+					Z = -(x * 0.5)             + (z * 0.5)
+					W =               y
+					AR = X*frac^3 + Y*frac^2 + Z*frac + W
+					offset = ptr + next_smp + frame_offset
+					int    = math.floor(offset)
+					frac   = offset - int
+					x = instance.data:getSample(math.floor(ptr-1 + next_smp + frame_offset) % N, 1)
+					y = instance.data:getSample(math.floor(ptr   + next_smp + frame_offset) % N, 1)
+					z = instance.data:getSample(math.floor(ptr+1 + next_smp + frame_offset) % N, 1)
+					w = instance.data:getSample(math.floor(ptr+2 + next_smp + frame_offset) % N, 1)
+					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+					Z = -(x * 0.5)             + (z * 0.5)
+					W =               y
+					BL = X*frac^3 + Y*frac^2 + Z*frac + W
+					x = instance.data:getSample(math.floor(ptr-1 + next_smp + frame_offset) % N, 2)
+					y = instance.data:getSample(math.floor(ptr   + next_smp + frame_offset) % N, 2)
+					z = instance.data:getSample(math.floor(ptr+1 + next_smp + frame_offset) % N, 2)
+					w = instance.data:getSample(math.floor(ptr+2 + next_smp + frame_offset) % N, 2)
+					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+					Z = -(x * 0.5)             + (z * 0.5)
+					W =               y
+					BR = X*frac^3 + Y*frac^2 + Z*frac + W
+				else--if instance.interpolation == 3 then
+					-- Lanczos (Sinc) variants: 32 taps (not counting the main lobe's tap)
+					-- TODO: This still rings more than the cubic, probably an error in implementation.
+					local taps  = 32
+					local resultL, resultR = 0.0, 0.0
+					local x = (ptr + next_smp) % N
+					for l = -(taps/2), (taps/2) do
+						local i = math.floor(ptr+l + next_smp) % N
+						resultL = resultL + instance.data:getSample(i,1) * lanczos_window(x - i, taps)
+						resultR = resultR + instance.data:getSample(i,2) * lanczos_window(x - i, taps)
+					end
+					AL, AR = resultL, resultR
+
+					resultL, resultR = 0.0, 0.0
+					local x = (ptr + next_smp + frame_offset) % N
+					for l = -(taps/2), (taps/2) do
+						local i = math.floor(ptr+l + next_smp + frame_offset) % N
+						resultL = resultL + instance.data:getSample(i,1) * lanczos_window(x - i, taps)
+						resultR = resultR + instance.data:getSample(i,2) * lanczos_window(x - i, taps)
+					end
+					BL, BR = resultL, resultR
+				end
+
+				-------------------------------------------------------------------------------------------------
+				--/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\--
+				-------------------------------------------------------------------------------------------------
+
+				-- Apply attenuation to result in a linear mix through the buffer.
+				AL, AR = AL * (1.0 - mix), AR * (1.0 - mix)
+				BL, BR = BL * (      mix), BR * (      mix)
+
+				-- Sum the to be mixed values.
+				L, R = AL+BL, AR+BR
+
+				-- Implement stereo separation.
+				local M = (L + R) * 0.5
+				local S = (L - R) * 0.5
+				L = M + S * instance.separation
+				R = M - S * instance.separation
+
+				-- Implement stereo panning.
+				L = L * instance._panL
+				R = R * instance._panR
+
+				-- Set the samplepoint value with clamping for safety.
+				instance.buffer:setSample(i, 1, math.min(math.max(L, -1.0), 1.0))
+				instance.buffer:setSample(i, 2, math.min(math.max(R, -1.0), 1.0))
 			end
 
-			-- Calculate next buffer-internal pointer.
-			p = (p + instance.innerOffset)
+			-- Calculate the next sample offset for loop processing.
+			ptr = ptr + instance.innerOffset
 
-			if instance.looping then
-				if instance.timeDilation >= 0 then
-					while p > instance.endpoint do
-						p = p - (instance.endpoint - instance.startpoint)
-					end
-				else
-					while p < instance.startpoint do
-						p = p + (instance.endpoint - instance.startpoint)
-					end
-				end
-				p = p % instance.data:getSampleCount()
-			else
-				if p >= instance.data:getSampleCount() or p < 0 then
-					-- Fill rest of the buffer with silence.
-					for j=i+1, instance.bufferSize-1 do
+			if not instance.looping then
+				if ptr >= N or ptr < 0 then
+					-- Fill the rest of the buffer with silence
+					-- if the pointer went out of bounds.
+					for j=i+1, instance.frameSize-1 do
 						for ch=1, instance.channelCount do
 							instance.buffer:setSample(j, ch, 0.0)
 						end
 					end
-
+					-- Also we stop playback.
 					instance:stop()
-					return
+				end
+			else -- if instance.looping then
+				-- Simplistic implementation, works in most situations;
+				-- Probably could be implemented with modular arithmetic instead.
+				-- If next samplepoint offset is out of loop bounds, move it so it isn't.
+				if instance.timeDilation >= 0 then
+					while ptr > instance.endpoint do
+						ptr = ptr - (instance.endpoint - instance.startpoint)
+					end
+				else
+					while ptr < instance.startpoint do
+						ptr = ptr + (instance.endpoint - instance.startpoint)
+					end
 				end
 			end
+			-- Remove the offset we added before wrapping.
+			ptr = (ptr - instance.innerOffset) % N
 		end
 
-		-- Calculate next buffer-external pointer.
+		-- Calculate next buffer offset
+		instance.pointer = instance.pointer + instance.frameSize * instance.timeDilation * math.abs(instance.resampleRatio)
+
+		-- Handle looping behaviour.
 		if instance.looping then
-			instance.pointer = (instance.pointer - (instance.outerOffset * instance.bufferSize))
+			-- Simplistic implementation, works in most situations;
+			-- Probably could be implemented with modular arithmetic instead.
+			-- If next buffer offset is out of loop bounds, move it so it isn't.
 			if instance.timeDilation >= 0 then
 				while instance.pointer > instance.endpoint do
 					instance.pointer = instance.pointer - (instance.endpoint - instance.startpoint)
@@ -193,20 +417,14 @@ Generator.static = function(instance)
 					instance.pointer = instance.pointer + (instance.endpoint - instance.startpoint)
 				end
 			end
-		else
-			instance.pointer = (instance.pointer - (instance.outerOffset * instance.bufferSize))
 		end
-		instance.pointer = instance.pointer % instance.data:getSampleCount()
 
-	else
-		-- Fill buffer with silence.
-		for i=0, instance.bufferSize-1 do
-			for ch=1, instance.channelCount do
-				instance.buffer:setSample(i, ch, 0.0)
-			end
-		end
+		-- Wrap pointer value based on input.
+		instance.pointer = instance.pointer % N
 	end
-	instance.source:queue(instance.buffer)
+
+	-- Static source type -> needs queueing and playing
+	instance.source:queue(instance.buffer, instance.frameSize * (instance.bitDepth/8) * instance.channelCount)
 	instance.source:play()
 end
 
@@ -250,7 +468,7 @@ Generator.queue  = function(instance) -- TODO
 				local pan = {}
 				pan[1], pan[2] = instance.panlawfunc(instance.pan)
 
-				for i=0, instance.bufferSize-1 do
+				for i=0, instance.frameSize-1 do
 					-- No need to interpolate due to TS/PS functionality not being available...
 					local smpL, smpR = instance.buffer:getSample(i, 1), instance.buffer:getSample(i, 2)
 
@@ -274,7 +492,7 @@ Generator.queue  = function(instance) -- TODO
 				end
 			end
 
-			instance.source:queue(instance.buffer)
+			instance.source:queue(instance.buffer, instance.frameSize * (instance.bitDepth/8) * instance.channelCount)
 			instance.source:play()
 		--else-- if instance.queue == Queue then
 			-- Data already pushed, processed, enqueued and set to play.
@@ -282,13 +500,18 @@ Generator.queue  = function(instance) -- TODO
 	end
 end
 
--- Makes pitch shifting and time stretching possible, more or less.
-function calculatePlaybackCoefficients(instance)
-	instance.innerOffset =          instance.pitchShift *
-	                       math.sgn(instance.timeDilation) *
-	                                instance.resampleRatio
-	instance.outerOffset =         -instance.timeDilation *
-	                       math.abs(instance.resampleRatio)
+
+
+-- Makes pitch shifting and time stretching possible.
+local function calculatePlaybackCoefficients(instance)
+	instance.innerOffset = instance.resampleRatio                                                             * instance.pitchShift * math.sgn(instance.timeDilation)
+	instance.outerOffset = instance.resampleRatio * (instance.timeDilation * math.sgn(instance.resampleRatio) - instance.pitchShift * math.sgn(instance.timeDilation))
+end
+
+local function calculatePanningCoefficients(instance)
+	if instance.channelCount == 2 then
+	instance._panL, instance._panR = instance.panlawfunc(instance.pan)
+	end
 end
 
 -------------------------------
@@ -340,6 +563,7 @@ function ASource.clone(instance)
 
 	-- Set up more internals.
 	calculatePlaybackCoefficients(clone)
+	calculatePanningCoefficients(clone)
 
 	setmetatable(clone, mtASource)
 
@@ -545,22 +769,34 @@ function ASource.getType(instance)
 end
 
 
-function ASource.getBufferSize(instance)
-	return instance.bufferSize
+function ASource.getBufferSize(instance, unit)
+	unit = unit or 'milliseconds'
+
+	assert(BufferUnit[unit],
+		"Unsupported BufferUnit: " .. tostring(unit))
+
+	if unit == 'samples' then
+		return instance.frameSize
+	else--if unit == 'milliseconds' then
+		return instance.frameSize / instance.samplingRate * 1000
+	end
 end
 
-function ASource.setBufferSize(instance, samplepoints)
-	instance.source:stop()
-	assert(type(samplepoints) == 'number' and
-		samplepoints > 0 and samplepoints == math.floor(samplepoints),
-		"Buffer size must be given as a positive nonzero integer.")
-	instance.bufferSize = samplepoints
-	instance.buffer = love.sound.newSoundData(
-		instance.bufferSize,
-		instance.samplingRate,
-		instance.bitDepth,
-		instance.channelCount)
-	instance.source:play()
+function ASource.setBufferSize(instance, amount, unit)
+	unit = unit or 'milliseconds'
+
+	assert(BufferUnit[unit],
+		"Unsupported BufferUnit: " .. tostring(unit))
+
+	if unit == 'samples' then
+		assert(type(amount) == 'number' and amount > 0 and amount <= 65536 and amount == math.floor(amount),
+			"Buffer size in samplepoints must be given as a positive nonzero integer, 65536 at most.")
+		instance.frameSize = amount
+	else--if unit == 'milliseconds' then
+		assert(type(amount) == 'number' and amount * instance.samplingRate * 0.001 > 0.0 and amount * instance.samplingRate * 0.001 <= 65536,
+			"Buffer size in milliseconds must be given as a positive nonzero number, equivalent to 65536 samplepoints at most.")
+		instance.frameSize = math.floor(amount * instance.samplingRate * 0.001 + 0.5)
+	end
 end
 
 -- Time-domain manipulation
@@ -695,6 +931,21 @@ function ASource.setTimeStretch(instance, ratio)
 	calculatePlaybackCoefficients(instance)
 end
 
+
+
+-- Interpolation related
+function ASource.getInterpolationMethod(instance)
+	return ItpMethod[instance.interpolation]
+end
+
+function ASource.setInterpolationMethod(instance, method)
+	assert(iItpMethod[method],
+		("Interpolation method %s unsupported."):format(tostring(method)))
+	instance.interpolation = iItpMethod[method]
+end
+
+
+
 -- Effects related
 function ASource.getEffect(instance, ...)
 	return instance.source:getEffect(...)
@@ -788,6 +1039,7 @@ function ASource.setPanning(instance, balance)
 		error "Panning values must be between 0 and 1!"
 	end
 	instance.pan = balance
+	calculatePanningCoefficients(instance)
 end
 
 function ASource.getPanLaw(instance)
@@ -820,6 +1072,7 @@ function ASource.setPanLaw(instance, law)
 		instance.panlaw = law
 		instance.panlawfunc = PanLaws[law]
 	end
+	calculatePanningCoefficients(instance)
 end
 
 -- Stereo Separation related
@@ -889,14 +1142,19 @@ new = function(a, b, c, d)
 	asource.channelCount   =     1
 	asource.samplingRate   =  8000
 
-	asource.bufferSize     =  2048 -- Seems optimal for time stretching w/ a samp.rate of 44.1kHz.
+	asource.bufferSize     = 65536 -- Set to maximum allowed value, never changed.
+	asource.frameSize      =   400 -- 50 ms by default, this is a placeholder value.
 	asource.pitchShift     =     1 -- 1 means no pitch modification; tied with parameter below.
 	asource.pitchShiftSt   =     0 -- 0 means no semitone offset; tied with parameter above.
 	asource.resampleRatio  =     1 -- 1 means regular rate.
-	asource.timeDilation   =     1 -- 1 means regular forward playback.
+	asource.timeDilation   =     1 -- 1 means regular forward playback. (TODO: Rename to stretch?)
+	asource.interpolation  =     1 -- see at the top for the enums.
 
 	asource.innerOffset    =     1 -- Rate of samplepoint advancement in one buffer.
 	asource.outerOffset    =    -1 -- Rate of buffer advancement.
+	
+	asource._panL          =   0.5 -- Intermediate values for panning adjustment
+	asource._panR          =   0.5 -- -"-
 
 	asource.pointer        =     0 -- Samplepoint offset into the full track.
 	asource.looping        = false
@@ -977,6 +1235,8 @@ new = function(a, b, c, d)
 
 	-- Set up more internals.
 	calculatePlaybackCoefficients(asource)
+	calculatePanningCoefficients(asource)
+	asource.frameSize =  50.0 * asource.samplingRate * 0.001
 
 	-- Make this work more or less like a regular source.
 	setmetatable(asource, mtASource)
