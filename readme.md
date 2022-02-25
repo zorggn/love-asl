@@ -28,6 +28,7 @@ For those that want to, they can always add the function themselves into löve's
 - Implements dynamic buffer resizing based on uniform noise to mitigate specific harmonic distortion noise, for convenience.
 - Implements reverse playback.
 - Implements different interpolation methods during modified playback (resampled, stretched, and/or shifted)
+- Implements the ability to use stereo sound files as mono, for simpler 3D spatialization support.
 - All methods that don't return any values are chainable.
 
 ### API Changes
@@ -37,7 +38,7 @@ For those that want to, they can always add the function themselves into löve's
 - `Source:setPitch` is now `Source:setResamplingRatio`.
 
 #### Additions
-- `Source:rewind` re-added, which is syntax sugar for `Source:seek(0)` or `Source:seek(Source:getSampleCount()-1` depending on playback direction.
+- `Source:rewind` re-added, which is syntax sugar for `Source:seek(0)` or `Source:seek(Source:getSampleCount()-1`, depending on playback direction.
 
 - `Source:getLoopPoints` added, returns `startpoint` and `endpoint`, in samplepoints.
 - `Source:setLoopPoints` added, with parameters `startpoint` and `endpoint`; in samplepoints.
@@ -67,13 +68,14 @@ For those that want to, they can always add the function themselves into löve's
 The two laws are constant-gain/amplitude and constant-power/loudness laws, the first attentuates the volume at the center by -6dB (50%), the second only by -3dB (1/sqrt(2)).
 
 - `Source:getStereoSeparation` added.
-- `Source:setStereoSeparation` added, with parameter `amount`; 0.0 means both channels are mixed down to monaural (mono), 1.0 means the original stereo signal is kept. Default is `1.0`.
+- `Source:setStereoSeparation` added, with parameter `amount`; -1.0 means mid channel output only, 0.0 means original, 1.0 means side channel output only. Default is `0.0`.
 
 -- `Source:getBufferVariance` added, with parameter `unit`, in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default.
 -- `Source:setBufferVariance` added, with parameters `amount` and `unit`; in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default. Randomly varies the length of the buffer within its defined limits.
 
 #### Modifications
-- `Source:queue` may now be defined as a "pull-style" callback; if it isn't, it will work as the vanilla "push-style" method.
+- `Source:queue` may now be defined as a "pull-style" callback; if it isn't, it will work as the vanilla "push-style" method. (Note: queue type source support not yet implemented.)
+
 - `Object:release` modified to release all extra internals of the new Objects; must be called explicitly if one doesn't want dead objects cluttering up the processing thread.
 - `Object:type` modified to return the string `ASource`.
 - `Object:typeOf` modified to also return true for `ASource` as a specialization of the `Source` type.
@@ -85,9 +87,9 @@ The two laws are constant-gain/amplitude and constant-power/loudness laws, the f
 	- Decoder,     SourceType,            buffercount, aurality
 	- SoundData,                          buffercount, aurality
 	- samplerate, bitdepth, channelCount, buffercount, aurality
-buffercount and aurality are optional parameters.
+where buffercount and aurality are optional parameters.
 The buffercount parameter sets how many OpenAL-side buffers get made for the internal queueable source; less means less delay.
-The aurality parameter forces the internal QSource and buffers to be either mono or stereo, regardless of the channel count of the data itself; this means that ostensibly stereo data can also be used with 3D spatialization.
+The aurality parameter forces the internal QSource and buffers to be either mono or stereo, regardless of the channel count of the input itself; this means that ostensibly stereo data can also be used with 3D spatialization.
 
 ### Version History
 
@@ -134,6 +136,7 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 	- Changed setLoopPoints method to accept partial parameters if one only wants to modify one of the values.
 	- Changed loop handling to allow disjunct loop regions that wrap around the end/beginning of the data.
 		- Also made sure initial playback and seeking to arbitrary places does not lock playback into the loop region; if such functionality is needed, seek into the loop region.
+		- Note: Disjunt loop regions are currently buggy, this is a known issue and will be fixed.
 
 	- Removed library adding itself to the love.audio table... it really shouldn't do that by itself unprompted.
 
