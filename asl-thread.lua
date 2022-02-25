@@ -187,8 +187,8 @@ Process.static = function(instance)
 		end
 
 		-- Unroll loops based on input channel count.
-		if instance.channelCount == 1
-			local A,B = 0.0, 0.0
+		if instance.channelCount == 1 then
+			local A, B = 0.0, 0.0
 
 			-- Using interpolation, calculate the two samplepoints for each input channel.
 			local itplMethodIdx = instance.itplMethodIdx
@@ -250,7 +250,7 @@ Process.static = function(instance)
 				local offset, result
 				
 				result = 0.0
-				offset = SmpOffset % N
+				offset = smpOffset % N
 				for t = -(taps/2), (taps/2) do
 					local i = math.floor(smpOffset + t + 0.5) % N
 					result = result + instance.data:getSample(i) *
@@ -394,8 +394,8 @@ Process.static = function(instance)
 				local taps  = 32
 				local offset, resultL, resultR
 				
-				result = 0.0
-				offset = SmpOffset % N
+				resultL, resultR = 0.0, 0.0
+				offset = smpOffset % N
 				for t = -(taps/2), (taps/2) do
 					local i = math.floor(smpOffset + t + 0.5) % N
 					resultL = resultL + instance.data:getSample(i, 1) *
@@ -405,7 +405,7 @@ Process.static = function(instance)
 				end
 				AL, AR = resultL, resultR
 
-				result = 0.0
+				resultL, resultR = 0.0, 0.0
 				offset = mixSmpOffset % N
 				for t = -(taps/2), (taps/2) do
 					local i = math.floor(mixSmpOffset + t + 0.5) % N
@@ -455,7 +455,7 @@ Process.static = function(instance)
 
 	-- Calculate next frame offset.
 	local nextPlaybackOffset = instance.playbackOffset +
-		instance.curframeSize * instance.timeDilation * math.abs(instance.resampleRatio)
+		instance.curFrameSize * instance.timeStretch * math.abs(instance.resampleRatio)
 
 	-- Apply loop region bounding, if applicable.
 	if instance.looping then
@@ -585,11 +585,11 @@ local function new(a,b,c,d,e)
 			error(("ASource constructor: 4th parameter must be a number; " ..
 				"got %s instead."):format(type(d)))
 		end
-		if not ({8 = true, 16 = true})[b] then
+		if not ({[8] = true, [16] = true})[b] then
 			error(("ASource constructor: 2nd parameter must be either 8 or 16; " ..
 				"got %f instead."):format(b))
 		end
-		if not ({1 = true, 2 = true})[c] then
+		if not ({[1] = true, [2] = true})[c] then
 			error(("ASource constructor: 3rd parameter must be either 1 or 2; " ..
 				"got %f instead."):format(c))
 		end
@@ -803,9 +803,9 @@ local function new(a,b,c,d,e)
 	setmetatable(instance, mtASource)
 
 	-- Make the instance have an unique id, and add instance to the internal tables.
-	local id = #ASourceList
+	local id = #ASourceList + 1
 	instance.id = id
-	ASourceList[id] = clone
+	ASourceList[id] = instance
 	ASourceIMap[id] = id
 
 	-- Return the id number so a proxy instance can be constructed on the caller thread.
@@ -830,7 +830,7 @@ function ASource.clone(instance)
 	-- Due to reverse playback support, the start point is dependent on the playback direction.
 	clone._isPlaying = false
 	if     clone.type == 'static' then
-		clone.pointer = clone.timeDilation >= 0 and 0 or math.max(0, clone.data:getSampleCount()-1)
+		clone.pointer = clone.timeStretch >= 0 and 0 or math.max(0, clone.data:getSampleCount()-1)
 	elseif clone.type == 'stream' then
 		-- Not Yet Implemented.
 	else--if clone.type == 'queue' then
@@ -864,7 +864,7 @@ function ASource.clone(instance)
 	setmetatable(clone, mtASource)
 
 	-- Make clone have an unique id, and add instance to the internal tables.
-	local id = #ASourceList
+	local id = #ASourceList + 1
 	clone.id = id
 	ASourceList[id] = clone
 	ASourceIMap[id] = id
@@ -1001,7 +1001,7 @@ function ASource.getBufferSize(instance, unit)
 	end
 end
 
-function aSource.setBufferSize(instance, size, unit)
+function ASource.setBufferSize(instance, size, unit)
 	unit = unit or 'milliseconds'
 
 	if not BufferUnit[unit] then
@@ -1300,7 +1300,7 @@ function ASource.rewind(instance)
 					instance.data:getSampleCount() - 1), 'samples')
 			else--if instance.type == 'stream' then
 				instance:seek(math.max(0,
-					instance.data:getDuration() * instance.samplingRate - 1, 'samples')
+					instance.data:getDuration() * instance.samplingRate - 1), 'samples')
 			end
 		end
 	end
@@ -1419,7 +1419,7 @@ function ASource.setResamplingRatio(instance, ratio)
 
 	instance.resampleRatio = ratio
 
-	calculatePlaybackCoefficients(instance)
+	calculateTSMCoefficients(instance)
 end
 
 function ASource.getTimeStretch(instance)
@@ -1437,7 +1437,7 @@ function ASource.setTimeStretch(instance, ratio)
 
 	instance.timeStretch = ratio
 
-	calculatePlaybackCoefficients(instance)
+	calculateTSMCoefficients(instance)
 end
 
 function ASource.getPitchShift(instance, unit)
@@ -1483,7 +1483,7 @@ function ASource.setPitchShift(instance, amount, unit)
 		instance.pitchShiftSt = amount
 	end
 
-	calculatePlaybackCoefficients(instance)
+	calculateTSMCoefficients(instance)
 end
 
 
@@ -1628,7 +1628,7 @@ while true do
 		for i=1, #ASourceList do ASourceList[i]:stop() end
 		ch:push(true)
 
-	elseif msg = 'new' then
+	elseif msg == 'new' then
 		-- Construct a new ASource using parameters popped from the inbound queue,
 		-- then send back the instance's id so a proxy instance can be constructed there.
 		local ch, a, b, c, d, e, id
@@ -1643,7 +1643,7 @@ while true do
 
 		ch:push(id)
 
-	else--if ASource[msg] then -- Although this wouldn't work without a metatable on ASource too.
+	elseif type(msg) == 'string' then -- Can't use ASource[msg] due to missing vanilla methods...
 		-- Redefined methods and ones we "reverse-inherit" from the internally used QSource.
 		-- <methodName> (above), <ch>, <id>, <paramCount>, [<parameter1>, ..., <parameterN>]
 		local ch = toProc:pop()
