@@ -1477,9 +1477,9 @@ function ASource.setPitchShift(instance, amount, unit)
 				"got %f instead."):format(amount))
 		end
 		instance.pitchShift   = amount
-		instance.pitchShiftSt = 2^(amount/12)
+		instance.pitchShiftSt = (math.log(amount)/math.log(2))*12
 	else--if unit == 'semitones' then
-		instance.pitchShift   = (math.log(amount)/math.log(2))*12
+		instance.pitchShift   = 2^(amount/12)
 		instance.pitchShiftSt = amount
 	end
 
