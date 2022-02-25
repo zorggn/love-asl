@@ -565,7 +565,8 @@ local function new(a,b,c,d,e)
 	local sourcetype
 	if type(a) == 'nil' then
 		error("ASource constructor: Missing 1st parameter; it can be one of the following:\n" ..
-			"string, File, FileData, Decoder, SoundData, number.")
+			"string, File, FileData, Decoder, SoundData; use number for a queue-type instance.")
+
 	elseif type(a) == 'number' then
 		-- Queueable type.
 		if type(b) ~= 'number' then
