@@ -87,8 +87,11 @@ The two laws are constant-gain/amplitude and constant-power/loudness laws, the f
 	- Decoder,     SourceType,            buffercount, aurality
 	- SoundData,                          buffercount, aurality
 	- samplerate, bitdepth, channelCount, buffercount, aurality
+
 where buffercount and aurality are optional parameters.
+
 The buffercount parameter sets how many OpenAL-side buffers get made for the internal queueable source; less means less delay.
+
 The aurality parameter forces the internal QSource and buffers to be either mono or stereo, regardless of the channel count of the input itself; this means that ostensibly stereo data can also be used with 3D spatialization.
 
 ### Version History
