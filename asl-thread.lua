@@ -72,8 +72,8 @@ local PanLaws = {
 }
 
 -- Interpolation method list and reverse-lookup tables.
-local ItpMethodList  = {[0] = 'nearest', 'linear', 'cubic', 'sinc'}
-local ItpMethodIMap = {}; for i=0,#ItpMethodList do ItpMethodIMap[ItpMethodList[i]] = i end
+local ItplMethodList  = {[0] = 'nearest', 'linear', 'cubic', 'sinc'}
+local ItplMethodIMap = {}; for i=0,#ItplMethodList do ItplMethodIMap[ItplMethodList[i]] = i end
 
 -- Sinc function needed for the related interpolation functionality.
 local function lanczos_window(x,a)
