@@ -70,8 +70,8 @@ The two laws are constant-gain/amplitude and constant-power/loudness laws, the f
 - `Source:getStereoSeparation` added.
 - `Source:setStereoSeparation` added, with parameter `amount`; -1.0 means mid channel output only, 0.0 means original, 1.0 means side channel output only. Default is `0.0`.
 
--- `Source:getBufferVariance` added, with parameter `unit`, in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default.
--- `Source:setBufferVariance` added, with parameters `amount` and `unit`; in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default. Randomly varies the length of the buffer within its defined limits.
+- `Source:getBufferVariance` added, with parameter `unit`, in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default.
+- `Source:setBufferVariance` added, with parameters `amount` and `unit`; in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default. Randomly varies the length of the buffer within its defined limits.
 
 #### Modifications
 - `Source:queue` may now be defined as a "pull-style" callback; if it isn't, it will work as the vanilla "push-style" method. (Note: queue type source support not yet implemented.)
