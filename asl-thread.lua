@@ -1716,5 +1716,5 @@ while true do
 	end
 
 	-- Don't hog a core.
-	love.timer.sleep(0.002)
+	love.timer.sleep(0.001)
 end
