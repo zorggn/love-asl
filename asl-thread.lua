@@ -1308,6 +1308,7 @@ function ASource.getDuration(instance, unit)
 				return instance.data:getDuration()
 			end
 		end
+	end
 end
 
 function ASource.rewind(instance)
