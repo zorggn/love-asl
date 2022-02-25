@@ -21,3 +21,12 @@ $RECYCLE.BIN/
 # =========================
 # Operating System Files
 # =========================
+
+battery.lua
+conf.lua
+main.lua
+*.ttf
+run.bat
+run_debug.bat
+temp.lua
+test*
