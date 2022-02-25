@@ -1012,7 +1012,7 @@ function ASource.setBufferSize(instance, size, unit)
 	if not size then
 		error("Missing 1st parameter, must be a non-negative number.")
 	end
-	if type(size) ~= number then
+	if type(size) ~= 'number' then
 		error(("1st parameter must be a non-negative number; " ..
 			"got %s instead."):format(tostring(size)))
 	end
@@ -1066,7 +1066,7 @@ function ASource.setBufferVariance(instance, variance, unit)
 	if not variance then
 		error("Missing 1st parameter, must be a non-negative number.")
 	end
-	if type(variance) ~= number then
+	if type(variance) ~= 'number' then
 		error(("1st parameter must be a non-negative number; " ..
 			"got %s instead."):format(tostring(variance)))
 	end
@@ -1207,7 +1207,7 @@ function ASource.seek(instance, position, unit)
 	if not position then
 		error("Missing 1st parameter, must be a non-negative number.")
 	end
-	if type(position) ~= number then
+	if type(position) ~= 'number' then
 		error(("1st parameter must be a non-negative number; " ..
 			"got %s instead."):format(tostring(position)))
 	end
@@ -1412,7 +1412,7 @@ function ASource.setResamplingRatio(instance, ratio)
 	if not ratio then
 		error("Missing 1st parameter, must be a number.")
 	end
-	if type(ratio) ~= number then
+	if type(ratio) ~= 'number' then
 		error(("1st parameter must be a number; " ..
 			"got %s instead."):format(tostring(ratio)))
 	end
@@ -1430,7 +1430,7 @@ function ASource.setTimeStretch(instance, ratio)
 	if not ratio then
 		error("Missing 1st parameter, must be a number.")
 	end
-	if type(ratio) ~= number then
+	if type(ratio) ~= 'number' then
 		error(("1st parameter must be a number; " ..
 			"got %s instead."):format(tostring(ratio)))
 	end
@@ -1466,7 +1466,7 @@ function ASource.setPitchShift(instance, amount, unit)
 	if not amount then
 		error("Missing 1st parameter, must be a number.")
 	end
-	if type(amount) ~= number then
+	if type(amount) ~= 'number' then
 		error(("1st parameter must be a number; " ..
 			"got %s instead."):format(tostring(amount)))
 	end
@@ -1548,7 +1548,7 @@ function ASource.setPanning(instance, pan)
 	if not pan then
 		error("Missing 1st parameter, must be a number between 0 and 1 inclusive.")
 	end
-	if type(pan) ~= number then
+	if type(pan) ~= 'number' then
 		error(("1st parameter must be a number between 0 and 1 inclusive; " ..
 			"got %s instead."):format(tostring(pan)))
 	end
