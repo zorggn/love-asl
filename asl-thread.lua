@@ -1,12 +1,43 @@
 -- Advanced Source Library
 -- Processing Thread
--- by zorg § ISC @ 2018-2021
+-- by zorg § ISC @ 2018-2022
+
+
+
+--[[
+Internal Variables
+- ProcThread Class:
+	- instances -> Table needed to keep track of all active sources.
+		- Keys should be gapless integers so we can quickly iterate over them
+		- Times the table is modified:
+			- Add new element -> goes to end, that's fine
+			- Del one element -> can be any element, shifting table or better yet, replacing with
+			  the last should be fine; this shouldn't change id-s though.
+		- Times the table is accessed:
+			- Thread update loop    -> goes over all elements, should be fast.
+			- Instance method calls -> goes by id number, should be relatively fast.
+			- love.audio.pause      -> requests id-s that were stopped by this event.
+		Verdict: An int-keyed gapless table w/ an inverse lookup table seems like the best choice.
+
+- ProcThread Instances:
+	See the constructor function definition.
+	The methods may throw 4 kinds of errors resulting from:
+	- nil checks,
+	- type checks,
+	- range checks,
+	- enumeration checks.
+--]]
+
+
 
 -- Needed löve modules in this thread.
 require('love.thread')
 require('love.sound')
 require('love.audio')
 require('love.timer')
+require('love.math')
+
+
 
 -- The thread itself, needed so we can have one unique processing thread.
 local procThread
@@ -14,28 +45,37 @@ local procThread
 -- Shared communication channel to this thread.
 local toProc = ...
 
--- List of ASource objects, their numerical indices being used as id-s.
-local ASList = {}
+-- List of ASource objects; keys are contiguous integers, however, they aren't unique indices.
+-- We also define a reverse-lookup table: keys are the unique indices, vals are the above keys.
+local ASourceList = {} -- number:table
+local ASourceIMap = {} -- number:number
 
--------------------------------
 
--- Barfing into the math library (of this thread).
-math.sgn = function(x) return x<0 and -1.0 or 1.0 end
 
--- Constants
-local SourceType = {['static'] = true,  ['stream']    = true, ['queue'] = true}
-local PitchUnit  = {['ratio']  = true,  ['semitones'] = true}
-local TimeUnit   = {['seconds'] = true, ['samples']   = true}
-local BufferUnit = {['milliseconds'] = true, ['samples']   = true}
+-- Enumerations.
+local PitchUnit     = {['ratio']        = true, ['semitones'] = true}
+local TimeUnit      = {['seconds']      = true, ['samples']   = true}
+local BufferUnit    = {['milliseconds'] = true, ['samples']   = true}
+local VarianceUnit  = {['milliseconds'] = true, ['samples']   = true, ['percentage'] = true}
 
+
+
+-- Monkeypatching into the math library (of this thread only).
+local math = math
+math.sgn   = function(x) return x<0 and -1.0 or 1.0 end
+math.clamp = function(x,min,max) return math.max(math.min(x, max), min) end
+
+-- Panning laws included by default.
 local PanLaws = {
 	gain  = function(pan) return                    1.0  - pan,                           pan end,
 	power = function(pan) return math.cos(math.pi / 2.0) * pan, math.sin(math.pi / 2.0) * pan end
 }
 
-local ItpMethod  = {[0] = 'nearest', 'linear', 'cubic', 'sinc'}
-local iItpMethod = {}; for i=0,#ItpMethod do iItpMethod[ItpMethod[i]] = i end
+-- Interpolation method list and reverse-lookup tables.
+local ItpMethodList  = {[0] = 'nearest', 'linear', 'cubic', 'sinc'}
+local ItpMethodIMap = {}; for i=0,#ItpMethodList do ItpMethodIMap[ItpMethodList[i]] = i end
 
+-- Sinc function needed for the related interpolation functionality.
 local function lanczos_window(x,a)
 	if x == 0 then
 		return 1 -- division by zero protection.
@@ -46,1057 +86,802 @@ local function lanczos_window(x,a)
 	end
 end
 
--- This is the default push-style API for Queueable Sources, that may be overridden by a
--- pull-styled one.
-local Queue = function(instance, buffer)
-	assert(instance._type == 'queue',
-		"Cannot queue up data manually to non-queueable sources.")
-	assert(instance.samplingRate == buffer:getSampleRate(),
-		"Buffer sampling rate mismatch.")
-	assert(instance.bitDepth == buffer:getBitDepth(),
-		"Buffer bit depth mismatch.")
-	assert(instance.channelCount == buffer:getChannelCount(),
-		"Buffer channel count mismatch.")
 
-	instance.buffer:release()
-	instance.buffer = love.sound.newSoundData(
-		buffer:getSampleCount(),
-		instance.samplingRate,
-		instance.bitDepth,
-		instance.channelCount)
 
-	-- May not be the most performant, but then again, the pull-style should be used anyway.
-	if instance.channelCount == 1 then
-		for i=0, buffer:getSampleCount()-1 do
-			instance.buffer:setSample(i, buffer:getSample(i))
-		end
-	else--if instance.channelCount == 2 then
+----------------------------------------------------------------------------------------------------
 
-		-- We need to apply our own supported effects on the queue type as well... at least those that we can.
-		-- Currently, that means Stereo Separation and Stereo Panning.
-		-- Time Stretching and Pitch Shifting might be possible, but AFAIK the push-style API just can't handle arbitrary buffer shrinking/expanding.
-
-		-- Stereo Panning implementation #1
-		local pan = {}
-		pan[1], pan[2] = instance.panlawfunc(instance.pan)
-
-		for i=0, buffer:getSampleCount()-1 do
-			-- No need to interpolate due to TS/PS functionality not being available...
-			local smpL, smpR = buffer:getSample(i, 1), buffer:getSample(i, 2)
-
-			-- Stereo Separation implementation
-			local M = (smpL + smpR) * 0.5
-			local S = (smpL - smpR) * 0.5
-			smpL = M + S * instance.separation
-			smpR = M - S * instance.separation
-
-			-- Stereo Panning implementation #2
-			smpL = smpL * pan[1]
-			smpR = smpR * pan[2]
-
-			-- Clamp for safety
-			smpL = math.min(math.max(smpL, -1), 1)
-			smpR = math.min(math.max(smpR, -1), 1)
-
-			-- Finalize
-			instance.buffer:setSample(i, 1, smpL)
-			instance.buffer:setSample(i, 2, smpR)
-		end
-	end
-
-	instance.source:queue(instance.buffer)
+-- TODO: Placeholder until we implement the full push-style version with all processing included.
+local Queue = function(instance, ...)
+	instance.source:queue(...)
 	-- No play call here; vanilla QSources didn't automatically play either.
-
 	return true
 end
 
--- Defining generator functions that fill the internal Buffer object.
-local Generator = {}
 
-Generator.static = function(instance)
 
-	if not instance._isPlaying then -- Fill buffer with silence.
-		for i=0, instance.frameSize-1 do
-			for ch=1, instance.channelCount do
-				instance.buffer:setSample(i, ch, 0.0)
+----------------------------------------------------------------------------------------------------
+
+-- Defining processing functions that fill the internal buffer with generated samplepoints.
+
+local Process = {}
+
+
+
+Process.static = function(instance)
+	-- If instance is not in the playing state, return, since we don't want to have silent sources
+	-- occupying any active source slots.
+	if not instance.playing then return end
+
+	-- Localize length of the input SoundData for less table accesses and function calls.
+	local N = instance.data:getSampleCount()
+
+	-- The current frame offset.
+	local frameOffset    = instance.playbackOffset
+	-- Calculate the offset of the frame we want to mix with the current one.
+	local mixFrameOffset = instance.curFrameSize * instance.outerOffset
+
+	-- Copy samplepoints to buffer.
+	for i = 0, instance.curFrameSize - 1 do
+
+		-- Normalized weight applied to the two samplepoints we're mixing each time.
+		local mix = i / (instance.curFrameSize - 1)
+
+		-- Current fractional samplepoint offset into the input SoundData.
+		local smpOffset    = frameOffset + i * instance.innerOffset
+		-- Calculate the offset of the samplepoint we want to mix with the current one.
+		local mixSmpOffset = smpOffset + mixFrameOffset
+
+		-- If we left the SoundData's region, and looping is off...
+		if not instance.looping then
+			if smpOffset < 0 or smpOffset >= N then
+				-- Fill the rest of the buffer with silence,
+				for j = i + 1, instance.curFrameSize - 1 do
+					for ch=1, instance.channelCount do
+						instance.buffer:setSample(j, ch, 0.0)
+					end
+				end
+				-- Stop the instance.
+				instance:stop()
+				-- Break out early of the for loop.
+				break
+			end
+		else--if instance.looping then
+			local disjunct = instance.loopRegionB < instance.loopRegionA
+
+			-- Initial playback or seeking was performed.
+			if not instance.loopRegionEntered then
+				-- Check if we're inside any loop regions now, if so, set the above parameter.
+				if not disjunct then
+					if smpOffset >= instance.loopRegionA and smpOffset <= instance.loopRegionB then
+						instance.loopRegionEntered = true
+					end
+
+				else--if disjunct then
+					if (smpOffset >=   0 and smpOffset <= instance.loopRegionB) or
+					   (smpOffset <= N-1 and smpOffset >= instance.loopRegionA) then
+						instance.loopRegionEntered = true
+					end
+				end
+			end
+
+			-- If we're in the loop, make sure we don't leave it with neither of the two pointers.
+			if instance.loopRegionEntered then
+				-- Adjust both offsets to adhere to loop region bounds as well as SoundData length.
+				if not disjunct then
+					-- One contiguous region between A and B.
+					local loopRegionSize = instance.loopRegionB - instance.loopRegionA + 1
+
+					-- The same method works regardless of position or direction of playback.
+					smpOffset = (smpOffset - instance.loopRegionA) %
+						    loopRegionSize + instance.loopRegionA
+					mixSmpOffset = (mixSmpOffset - instance.loopRegionA) %
+						          loopRegionSize + instance.loopRegionA
+
+				else--if disjunct then
+					-- Two separate regions between 0 and B, and A and N-1 respectively.
+					local loopRegionSize = (1 + instance.loopRegionB) + (N - instance.loopRegionA)
+
+					-- Testing whether the same method as above works or not...
+					smpOffset = (smpOffset - instance.loopRegionA) %
+						    loopRegionSize + instance.loopRegionA
+					mixSmpOffset = (mixSmpOffset - instance.loopRegionA) %
+						          loopRegionSize + instance.loopRegionA
+				end
 			end
 		end
-	else -- Fill buffer with calculated data.
-		local ptr = instance.pointer               -- Current offset in source SoundData (double)
-		local N   = instance.data:getSampleCount() -- Length of source SoundData
 
-		-- Calculate next buffer offset.
-		local frame_offset = instance.frameSize * instance.outerOffset
+		-- Unroll loops based on input channel count.
+		if instance.channelCount == 1
+			local A,B = 0.0, 0.0
 
-		-- Copy samplepoints to buffer.
-		for i=0, instance.frameSize-1 do
+			-- Using interpolation, calculate the two samplepoints for each input channel.
+			local itplMethodIdx = instance.itplMethodIdx
+			if     itplMethodIdx == 0 then
+				-- 0th order hold / nearest-neighbour
+				A = instance.data:getSample(math.floor(smpOffset    + 0.5) % N)
 
-			-- Samplepoint blend amount normalized to [0,1] range across the window.
-			local mix = i / (instance.frameSize-1)
+				B = instance.data:getSample(math.floor(mixSmpOffset + 0.5) % N)
 
-			-- Calculate next samplepoint offset.
-			local next_smp = i * instance.innerOffset
+			elseif itplMethodIdx == 1 then
+				-- 1st order / linear
+				local int,frac
 
-			if instance.channelCount == 1 then
-				-- Get the correct samplepoints for mixing purposes, with the chosen interpolation method.
-				local A,B = 0.0, 0.0
+				int  = math.floor(smpOffset)
+				frac = smpOffset - int
+				A = instance.data:getSample( int      % N) * (1.0 - frac) +
+				    instance.data:getSample((int + 1) % N) *        frac
 
-				-------------------------------------------------------------------------------------------------
-				--/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\--
-				-------------------------------------------------------------------------------------------------
+				int  = math.floor(mixSmpOffset)
+				frac = mixSmpOffset - int
+				B = instance.data:getSample( int      % N) * (1.0 - frac) +
+				    instance.data:getSample((int + 1) % N) *        frac
 
-				-- Interpolate source samplepoints.
-				if instance.interpolation == 0 then
-					-- Nearest-Neighbor
-					local offset
-					offset = math.floor(ptr + 0.5 + next_smp) % N
-					A = instance.data:getSample(offset)
-					offset = math.floor(ptr + 0.5 + next_smp + frame_offset) % N
-					B = instance.data:getSample(offset)
-				elseif instance.interpolation == 1 then
-					-- Linear
-					local offset
-					local int,frac
-					offset = ptr + next_smp
-					int    = math.floor(offset)
-					frac   = offset - int
-					A = instance.data:getSample( int   %N) * (1.0 - frac) +
-					    instance.data:getSample((int+1)%N) * frac
-					offset = ptr + next_smp + frame_offset
-					int    = math.floor(offset)
-					frac   = offset - int
-					B = instance.data:getSample( int   % N) * (1.0 - frac) +
-					    instance.data:getSample((int+1)% N) * frac
-				elseif instance.interpolation == 2 then
-					-- Cubic Hermite Spline
-					-- https://blog.demofox.org/2015/08/08/cubic-hermite-interpolation/
-					-- (With some minor simplifications)
-					local offset
-					local int,frac
-					local x,y,z,w
-					local X,Y,Z,W
-					offset = ptr + next_smp
-					int    = math.floor(offset)
-					frac   = offset - int
-					x = instance.data:getSample(math.floor(ptr-1 + next_smp) % N)
-					y = instance.data:getSample(math.floor(ptr   + next_smp) % N)
-					z = instance.data:getSample(math.floor(ptr+1 + next_smp) % N)
-					w = instance.data:getSample(math.floor(ptr+2 + next_smp) % N)
-					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
-					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
-					Z = -(x * 0.5)             + (z * 0.5)
-					W =               y
-					A = X*frac^3 + Y*frac^2 + Z*frac + W
-					offset = ptr + next_smp + frame_offset
-					int    = math.floor(offset)
-					frac   = offset - int
-					x = instance.data:getSample(math.floor(ptr-1 + next_smp + frame_offset) % N)
-					y = instance.data:getSample(math.floor(ptr   + next_smp + frame_offset) % N)
-					z = instance.data:getSample(math.floor(ptr+1 + next_smp + frame_offset) % N)
-					w = instance.data:getSample(math.floor(ptr+2 + next_smp + frame_offset) % N)
-					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
-					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
-					Z = -(x * 0.5)             + (z * 0.5)
-					W =               y
-					B = X*frac^3 + Y*frac^2 + Z*frac + W
-				else--if instance.interpolation == 3 then
-					-- Lanczos (Sinc) variants: 32 taps (not counting the main lobe's tap)
-					-- TODO: This still rings more than the cubic, probably an error in implementation.
-					local taps  = 32
-					local result = 0.0
-					local x = (ptr + next_smp) % N
-					for l = -(taps/2), (taps/2) do
-						local i = math.floor(ptr+l + next_smp) % N
-						result = result + instance.data:getSample(i) * lanczos_window(x - i, taps)
-					end
-					A = result
-					local result = 0.0
-					local x = (ptr + next_smp + frame_offset) % N
-					for l = -(taps/2), (taps/2) do
-						local i = math.floor(ptr+l + next_smp + frame_offset) % N
-						result = result + instance.data:getSample(i) * lanczos_window(x - i, taps)
-					end
-					B = result
+			elseif itplMethodIdx == 2 then
+				-- 3rd order / cubic hermite spline
+				local int, frac
+
+				-- https://blog.demofox.org/2015/08/08/cubic-hermite-interpolation/ but simplified.
+				local x, y, z, w
+				local X, Y, Z, W
+
+				int  = math.floor(smpOffset)
+				frac = smpOffset - int
+				x = instance.data:getSample(math.floor(smpOffset-1) % N)
+				y = instance.data:getSample(math.floor(smpOffset  ) % N)
+				z = instance.data:getSample(math.floor(smpOffset+1) % N)
+				w = instance.data:getSample(math.floor(smpOffset+2) % N)
+				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+				Z = -(x * 0.5)             + (z * 0.5)
+				W =               y
+				A = X * frac^3 + Y * frac^2 + Z * frac + W
+
+				int  = math.floor(mixSmpOffset)
+				frac = mixSmpOffset - int
+				x = instance.data:getSample(math.floor(mixSmpOffset-1) % N)
+				y = instance.data:getSample(math.floor(mixSmpOffset  ) % N)
+				z = instance.data:getSample(math.floor(mixSmpOffset+1) % N)
+				w = instance.data:getSample(math.floor(mixSmpOffset+2) % N)
+				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+				Z = -(x * 0.5)             + (z * 0.5)
+				W =               y
+				B = X * frac^3 + Y * frac^2 + Z * frac + W
+
+			else--if itplMethodIdx == 3 then
+				-- 32-tap / sinc (lanczos)
+				local taps  = 32
+				local offset, result
+				
+				result = 0.0
+				offset = SmpOffset % N
+				for t = -(taps/2), (taps/2) do
+					local i = math.floor(smpOffset + t + 0.5) % N
+					result = result + instance.data:getSample(i) *
+					         lanczos_window(offset - i, taps)
 				end
+				A = result
 
-				-------------------------------------------------------------------------------------------------
-				--/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\--
-				-------------------------------------------------------------------------------------------------
-
-				-- Apply attenuation to result in a linear mix through the buffer.
-				A = A * (1.0 - mix)
-				B = B * (      mix)
-
-				-- Set the samplepoint value to be the sum of the above two,
-				-- with clamping for safety.
-				instance.buffer:setSample(i, math.min(math.max(A+B, -1.0), 1.0))
-
-			else -- if instance.channelCount == 2 then
-				-- Get the correct samplepoints for mixing purposes, with the chosen interpolation method.
-				local AL, AR, BL, BR = 0.0, 0.0, 0.0, 0.0
-				local L,R = 0.0, 0.0
-
-				-------------------------------------------------------------------------------------------------
-				--/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\--
-				-------------------------------------------------------------------------------------------------
-
-				-- Interpolate source samplepoints.
-				if instance.interpolation == 0 then
-					-- Nearest-Neighbor
-					local offset
-					offset = math.floor(ptr + 0.5 + next_smp) % N
-					AL = instance.data:getSample(offset, 1)
-					AR = instance.data:getSample(offset, 2)
-					offset = math.floor(ptr + 0.5 + next_smp + frame_offset) % N
-					BL = instance.data:getSample(offset, 1)
-					BR = instance.data:getSample(offset, 2)
-				elseif instance.interpolation == 1 then
-					-- Linear
-					local offset
-					local int,frac
-					offset = ptr + next_smp
-					int    = math.floor(offset)
-					frac   = offset - int
-					AL = instance.data:getSample( int   %N, 1) * (1.0 - frac) +
-					     instance.data:getSample((int+1)%N, 1) * frac
-					AR = instance.data:getSample( int   %N, 2) * (1.0 - frac) +
-					     instance.data:getSample((int+1)%N, 2) * frac
-					offset = ptr + next_smp + frame_offset
-					int    = math.floor(offset)
-					frac   = offset - int
-					BL = instance.data:getSample( int   %N, 1) * (1.0 - frac) +
-					     instance.data:getSample((int+1)%N, 1) * frac
-					BR = instance.data:getSample( int   %N, 2) * (1.0 - frac) +
-					     instance.data:getSample((int+1)%N, 2) * frac
-				elseif instance.interpolation == 2 then
-					-- Cubic Hermite Spline
-					-- https://blog.demofox.org/2015/08/08/cubic-hermite-interpolation/
-					-- (With some minor simplifications)
-					local offset
-					local int,frac
-					local x,y,z,w
-					local X,Y,Z,W
-					offset = ptr + next_smp
-					int    = math.floor(offset)
-					frac   = offset - int
-					x = instance.data:getSample(math.floor(ptr-1 + next_smp) % N, 1)
-					y = instance.data:getSample(math.floor(ptr   + next_smp) % N, 1)
-					z = instance.data:getSample(math.floor(ptr+1 + next_smp) % N, 1)
-					w = instance.data:getSample(math.floor(ptr+2 + next_smp) % N, 1)
-					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
-					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
-					Z = -(x * 0.5)             + (z * 0.5)
-					W =               y
-					AL = X*frac^3 + Y*frac^2 + Z*frac + W
-					x = instance.data:getSample(math.floor(ptr-1 + next_smp) % N, 2)
-					y = instance.data:getSample(math.floor(ptr   + next_smp) % N, 2)
-					z = instance.data:getSample(math.floor(ptr+1 + next_smp) % N, 2)
-					w = instance.data:getSample(math.floor(ptr+2 + next_smp) % N, 2)
-					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
-					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
-					Z = -(x * 0.5)             + (z * 0.5)
-					W =               y
-					AR = X*frac^3 + Y*frac^2 + Z*frac + W
-					offset = ptr + next_smp + frame_offset
-					int    = math.floor(offset)
-					frac   = offset - int
-					x = instance.data:getSample(math.floor(ptr-1 + next_smp + frame_offset) % N, 1)
-					y = instance.data:getSample(math.floor(ptr   + next_smp + frame_offset) % N, 1)
-					z = instance.data:getSample(math.floor(ptr+1 + next_smp + frame_offset) % N, 1)
-					w = instance.data:getSample(math.floor(ptr+2 + next_smp + frame_offset) % N, 1)
-					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
-					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
-					Z = -(x * 0.5)             + (z * 0.5)
-					W =               y
-					BL = X*frac^3 + Y*frac^2 + Z*frac + W
-					x = instance.data:getSample(math.floor(ptr-1 + next_smp + frame_offset) % N, 2)
-					y = instance.data:getSample(math.floor(ptr   + next_smp + frame_offset) % N, 2)
-					z = instance.data:getSample(math.floor(ptr+1 + next_smp + frame_offset) % N, 2)
-					w = instance.data:getSample(math.floor(ptr+2 + next_smp + frame_offset) % N, 2)
-					X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
-					Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
-					Z = -(x * 0.5)             + (z * 0.5)
-					W =               y
-					BR = X*frac^3 + Y*frac^2 + Z*frac + W
-				else--if instance.interpolation == 3 then
-					-- Lanczos (Sinc) variants: 32 taps (not counting the main lobe's tap)
-					-- TODO: This still rings more than the cubic, probably an error in implementation.
-					local taps  = 32
-					local resultL, resultR = 0.0, 0.0
-					local x = (ptr + next_smp) % N
-					for l = -(taps/2), (taps/2) do
-						local i = math.floor(ptr+l + next_smp) % N
-						resultL = resultL + instance.data:getSample(i,1) * lanczos_window(x - i, taps)
-						resultR = resultR + instance.data:getSample(i,2) * lanczos_window(x - i, taps)
-					end
-					AL, AR = resultL, resultR
-
-					resultL, resultR = 0.0, 0.0
-					local x = (ptr + next_smp + frame_offset) % N
-					for l = -(taps/2), (taps/2) do
-						local i = math.floor(ptr+l + next_smp + frame_offset) % N
-						resultL = resultL + instance.data:getSample(i,1) * lanczos_window(x - i, taps)
-						resultR = resultR + instance.data:getSample(i,2) * lanczos_window(x - i, taps)
-					end
-					BL, BR = resultL, resultR
+				result = 0.0
+				offset = mixSmpOffset % N
+				for t = -(taps/2), (taps/2) do
+					local i = math.floor(mixSmpOffset + t + 0.5) % N
+					result = result + instance.data:getSample(i) *
+					         lanczos_window(offset - i, taps)
 				end
+				B = result
+			end
 
-				-------------------------------------------------------------------------------------------------
-				--/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\/!\--
-				-------------------------------------------------------------------------------------------------
+			-- Apply attenuation to result in a linear mix through the buffer.
+			A = A * (1.0 - mix)
+			B = B *        mix
 
-				-- Apply attenuation to result in a linear mix through the buffer.
-				AL, AR = AL * (1.0 - mix), AR * (1.0 - mix)
-				BL, BR = BL * (      mix), BR * (      mix)
+			if instance.outputAurality == 1 then
 
-				-- Sum the to be mixed values.
-				L, R = AL+BL, AR+BR
+				-- Mix the values by simple summing.
+				local O = A+B
 
-				-- Implement stereo separation.
+				-- Set the samplepoint value(s) with clamping for safety.
+				instance.buffer:setSample(i, math.clamp(O, -1.0, 1.0))
+
+			else--if instance.outputAurality == 2 then
+
+				-- Mix the values by simple summing.
+				local L, R = A+B, A+B
+
+				-- Apply stereo separation. (For mono input, this just attenuates between 1.0 & 2.0)
 				local M = (L + R) * 0.5
 				local S = (L - R) * 0.5
-				L = M + S * instance.separation
-				R = M - S * instance.separation
+				local separation = instance.separation
+				if separation <= 1.0 then
+					L = M + S * separation
+					R = M - S * separation
+				else--if separation <= 2.0 then
+					L = M * (1.0 - (separation - 1.0)) + S * (separation - 1.0)
+					R = M * (1.0 - (separation - 1.0)) - S * (separation - 1.0)
+				end
 
-				-- Implement stereo panning.
-				L = L * instance._panL
-				R = R * instance._panR
+				-- Apply panning.
+				L = L * instance.panL
+				R = R * instance.panR
 
-				-- Set the samplepoint value with clamping for safety.
-				instance.buffer:setSample(i, 1, math.min(math.max(L, -1.0), 1.0))
-				instance.buffer:setSample(i, 2, math.min(math.max(R, -1.0), 1.0))
+				-- Set the samplepoint value(s) with clamping for safety.
+				instance.buffer:setSample(i, 1, math.clamp(L, -1.0, 1.0))
+				instance.buffer:setSample(i, 2, math.clamp(R, -1.0, 1.0))
+
 			end
 
-			-- Calculate the next sample offset for loop processing.
-			ptr = ptr + instance.innerOffset
+		else--if instance.channelCount == 2 then
+			local AL, BL = 0.0, 0.0
+			local AR, BR = 0.0, 0.0
 
-			if not instance.looping then
-				if ptr >= N or ptr < 0 then
-					-- Fill the rest of the buffer with silence
-					-- if the pointer went out of bounds.
-					for j=i+1, instance.frameSize-1 do
-						for ch=1, instance.channelCount do
-							instance.buffer:setSample(j, ch, 0.0)
-						end
-					end
-					-- Also we stop playback.
-					instance:stop()
+			-- Using interpolation, calculate the two samplepoints for each input channel.
+			local itplMethodIdx = instance.itplMethodIdx
+			if     itplMethodIdx == 0 then
+				-- 0th order hold / nearest-neighbour
+				AL = instance.data:getSample(math.floor(smpOffset    + 0.5) % N, 1)
+				AR = instance.data:getSample(math.floor(smpOffset    + 0.5) % N, 2)
+
+				BL = instance.data:getSample(math.floor(mixSmpOffset + 0.5) % N, 1)
+				BR = instance.data:getSample(math.floor(mixSmpOffset + 0.5) % N, 2)
+
+			elseif itplMethodIdx == 1 then
+				-- 1st order / linear
+				local int,frac
+
+				int  = math.floor(smpOffset)
+				frac = smpOffset - int
+				AL = instance.data:getSample( int      % N, 1) * (1.0 - frac) +
+				     instance.data:getSample((int + 1) % N, 1) *        frac
+				AR = instance.data:getSample( int      % N, 2) * (1.0 - frac) +
+				     instance.data:getSample((int + 1) % N, 2) *        frac
+
+				int  = math.floor(mixSmpOffset)
+				frac = mixSmpOffset - int
+				BL = instance.data:getSample( int      % N, 1) * (1.0 - frac) +
+				     instance.data:getSample((int + 1) % N, 1) *        frac
+				BR = instance.data:getSample( int      % N, 2) * (1.0 - frac) +
+				     instance.data:getSample((int + 1) % N, 2) *        frac
+
+			elseif itplMethodIdx == 2 then
+				-- 3rd order / cubic hermite spline
+				local int, frac
+
+				-- https://blog.demofox.org/2015/08/08/cubic-hermite-interpolation/ but simplified.
+				local x, y, z, w
+				local X, Y, Z, W
+
+				int  = math.floor(smpOffset)
+				frac = smpOffset - int
+				x = instance.data:getSample(math.floor(smpOffset-1) % N, 1)
+				y = instance.data:getSample(math.floor(smpOffset  ) % N, 1)
+				z = instance.data:getSample(math.floor(smpOffset+1) % N, 1)
+				w = instance.data:getSample(math.floor(smpOffset+2) % N, 1)
+				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+				Z = -(x * 0.5)             + (z * 0.5)
+				W =               y
+				AL = X * frac^3 + Y * frac^2 + Z * frac + W
+				x = instance.data:getSample(math.floor(smpOffset-1) % N, 2)
+				y = instance.data:getSample(math.floor(smpOffset  ) % N, 2)
+				z = instance.data:getSample(math.floor(smpOffset+1) % N, 2)
+				w = instance.data:getSample(math.floor(smpOffset+2) % N, 2)
+				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+				Z = -(x * 0.5)             + (z * 0.5)
+				W =               y
+				AR = X * frac^3 + Y * frac^2 + Z * frac + W
+
+				int  = math.floor(mixSmpOffset)
+				frac = mixSmpOffset - int
+				x = instance.data:getSample(math.floor(mixSmpOffset-1) % N, 1)
+				y = instance.data:getSample(math.floor(mixSmpOffset  ) % N, 1)
+				z = instance.data:getSample(math.floor(mixSmpOffset+1) % N, 1)
+				w = instance.data:getSample(math.floor(mixSmpOffset+2) % N, 1)
+				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+				Z = -(x * 0.5)             + (z * 0.5)
+				W =               y
+				BL = X * frac^3 + Y * frac^2 + Z * frac + W
+				x = instance.data:getSample(math.floor(mixSmpOffset-1) % N, 1)
+				y = instance.data:getSample(math.floor(mixSmpOffset  ) % N, 1)
+				z = instance.data:getSample(math.floor(mixSmpOffset+1) % N, 1)
+				w = instance.data:getSample(math.floor(mixSmpOffset+2) % N, 1)
+				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
+				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
+				Z = -(x * 0.5)             + (z * 0.5)
+				W =               y
+				BR = X * frac^3 + Y * frac^2 + Z * frac + W
+
+			else--if itplMethodIdx == 3 then
+				-- 32-tap / sinc (lanczos)
+				local taps  = 32
+				local offset, resultL, resultR
+				
+				result = 0.0
+				offset = SmpOffset % N
+				for t = -(taps/2), (taps/2) do
+					local i = math.floor(smpOffset + t + 0.5) % N
+					resultL = resultL + instance.data:getSample(i, 1) *
+					          lanczos_window(offset - i, taps)
+					resultR = resultR + instance.data:getSample(i, 2) *
+					          lanczos_window(offset - i, taps)
 				end
-			else -- if instance.looping then
-				-- Simplistic implementation, works in most situations;
-				-- Probably could be implemented with modular arithmetic instead.
-				-- If next samplepoint offset is out of loop bounds, move it so it isn't.
-				if instance.timeDilation >= 0 then
-					while ptr > instance.endpoint do
-						ptr = ptr - (instance.endpoint - instance.startpoint)
-					end
-				else
-					while ptr < instance.startpoint do
-						ptr = ptr + (instance.endpoint - instance.startpoint)
-					end
+				AL, AR = resultL, resultR
+
+				result = 0.0
+				offset = mixSmpOffset % N
+				for t = -(taps/2), (taps/2) do
+					local i = math.floor(mixSmpOffset + t + 0.5) % N
+					resultL = resultL + instance.data:getSample(i, 1) *
+					          lanczos_window(offset - i, taps)
+					resultR = resultR + instance.data:getSample(i, 2) *
+					          lanczos_window(offset - i, taps)
 				end
+				BL, BR = resultL, resultR
 			end
-			-- Remove the offset we added before wrapping.
-			ptr = (ptr - instance.innerOffset) % N
+
+			-- Apply attenuation to result in a linear mix through the buffer.
+			AL, AR = AL * (1.0 - mix), AR * (1.0 - mix)
+			BL, BR = BL * (      mix), BR * (      mix)
+
+			-- Mix the values by simple summing.
+			local L, R = AL+BL, AR+BR
+
+			-- Apply stereo separation.
+			local M = (L + R) * 0.5
+			local S = (L - R) * 0.5
+			local separation = instance.separation
+			if separation <= 1.0 then
+				L = M + S * separation
+				R = M - S * separation
+			else--if separation <= 2.0 then
+				L = M * (1.0 - (separation - 1.0)) + S * (separation - 1.0)
+				R = M * (1.0 - (separation - 1.0)) - S * (separation - 1.0)
+			end
+
+			-- Apply panning.
+			L = L * instance.panL
+			R = R * instance.panR
+
+			if instance.outputAurality == 1 then
+				-- Downmix to mono.
+				local O = (L+R) * 0.5
+				-- Set the samplepoint value(s) with clamping for safety.
+				instance.buffer:setSample(i, math.clamp(O, -1.0, 1.0))
+			else--if instance.outputAurality == 2 then
+				-- Set the samplepoint value(s) with clamping for safety.
+				instance.buffer:setSample(i, 1, math.clamp(L, -1.0, 1.0))
+				instance.buffer:setSample(i, 2, math.clamp(R, -1.0, 1.0))
+			end
 		end
-
-		-- Calculate next buffer offset
-		instance.pointer = instance.pointer + instance.frameSize * instance.timeDilation * math.abs(instance.resampleRatio)
-
-		-- Handle looping behaviour.
-		if instance.looping then
-			-- Simplistic implementation, works in most situations;
-			-- Probably could be implemented with modular arithmetic instead.
-			-- If next buffer offset is out of loop bounds, move it so it isn't.
-			if instance.timeDilation >= 0 then
-				while instance.pointer > instance.endpoint do
-					instance.pointer = instance.pointer - (instance.endpoint - instance.startpoint)
-				end
-			else
-				while instance.pointer < instance.startpoint do
-					instance.pointer = instance.pointer + (instance.endpoint - instance.startpoint)
-				end
-			end
-		end
-
-		-- Wrap pointer value based on input.
-		instance.pointer = instance.pointer % N
 	end
 
-	-- Static source type -> needs queueing and playing
-	instance.source:queue(instance.buffer, instance.frameSize * (instance.bitDepth/8) * instance.channelCount)
+	-- Calculate next frame offset.
+	local nextPlaybackOffset = instance.playbackOffset +
+		instance.curframeSize * instance.timeDilation * math.abs(instance.resampleRatio)
+
+	-- Apply loop region bounding, if applicable.
+	if instance.looping then
+		local disjunct = instance.loopRegionB < instance.loopRegionA
+
+		-- If we're in the loop, make sure we don't leave it with neither of the two pointers.
+		if instance.loopRegionEntered then
+			-- Adjust both offsets to adhere to loop region bounds as well as SoundData length.
+			if not disjunct then
+				-- One contiguous region between A and B.
+				local loopRegionSize = instance.loopRegionB - instance.loopRegionA + 1
+
+				-- The same method works regardless of position or direction of playback.
+				nextPlaybackOffset = (nextPlaybackOffset - instance.loopRegionA) %
+					                      loopRegionSize + instance.loopRegionA
+
+			else--if disjunct then
+				-- Two separate regions between 0 and B, and A and N-1 respectively.
+				local loopRegionSize = (1 + instance.loopRegionB) + (N - instance.loopRegionA)
+
+				-- Testing whether the same method as above works or not...
+				nextPlaybackOffset = (nextPlaybackOffset - instance.loopRegionA) %
+					                      loopRegionSize + instance.loopRegionA
+			end
+		end
+	end
+
+	-- Set instance's offset to what it should be, with wrapping by the input SoundData's size.
+	instance.playbackOffset = nextPlaybackOffset % N
+
+	-- Queue up the buffer we just calculated, and ensure it gets played even if the
+	-- Source object has already underrun, and hence stopped.
+	instance.source:queue(
+		instance.buffer, instance.curFrameSize * (instance.bitDepth/8) * instance.outputAurality)
 	instance.source:play()
 end
 
-Generator.stream = function(instance) -- TODO
-	-- - Probably need to use Decoder:seek(); default buffer size is 16384 smps.
-	-- - :isSeekable isn't exposed so we'll hope no one tries to open non-seekable vorbis files.
-	-- - 2019 EDIT: :isSeekable is now exposed... but Decoders load the whole file into RAM...
-	-- (alternatively, it should return a value that denotes it failed, instead of erroring...)
-	-- - If pointer goes out of range of decoded samplepoints, we need to decode another batch.
-	-- - Probably keep around a few extra buffers worth of decoded smp-s in the direction we're
-	-- playing the file?
-	-- - We also need to somehow get the correct sample offset of the returned SoundData...
 
-	--instance.source:queue(instance.buffer)
-	--instance.source:play()
-end
 
-Generator.queue  = function(instance) -- TODO
-	-- This actually just calls a pull-styled callback; deferring the heavy stuff to the user,
-	-- but only if the user redefined Source:queue to be a callback (i.e. the function's memory
-	-- address is different.)
-
-	-- We need to apply our own supported effects on the queue type as well... at least those that we can.
-	-- Currently, that means Stereo Separation and Stereo Panning.
-	-- Time Stretching and Pitch Shifting might be possible, but AFAIK the push-style API just can't handle arbitrary buffer shrinking/expanding.
-
-	if instance._type == 'queue' then
-		if instance.queue ~= Queue then
-			-- This has issues with the threaded approach, since we can't use channels to pass lua 
-			-- functions through.
-			instance.queue(instance.buffer) -- Callback that can be anywhere...
-
-			-- This will bog the processing down a smidge, for stereo sources, that is.
-			if instance.channelCount == 2 then
-
-				-- We need to apply our own supported effects on the queue type as well... at least those that we can.
-				-- Currently, that means Stereo Separation and Stereo Panning.
-				-- Time Stretching and Pitch Shifting might be possible, but AFAIK the push-style API just can't handle arbitrary buffer shrinking/expanding.
-
-				-- Stereo Panning implementation #1
-				local pan = {}
-				pan[1], pan[2] = instance.panlawfunc(instance.pan)
-
-				for i=0, instance.frameSize-1 do
-					-- No need to interpolate due to TS/PS functionality not being available...
-					local smpL, smpR = instance.buffer:getSample(i, 1), instance.buffer:getSample(i, 2)
-
-					-- Stereo Separation implementation
-					local M = (smpL + smpR) * 0.5
-					local S = (smpL - smpR) * 0.5
-					smpL = M + S * instance.separation
-					smpR = M - S * instance.separation
-
-					-- Stereo Panning implementation #2
-					smpL = smpL * pan[1]
-					smpR = smpR * pan[2]
-
-					-- Clamp for safety
-					smpL = math.min(math.max(smpL, -1), 1)
-					smpR = math.min(math.max(smpR, -1), 1)
-
-					-- Finalize
-					instance.buffer:setSample(i, 1, smpL)
-					instance.buffer:setSample(i, 2, smpR)
-				end
-			end
-
-			instance.source:queue(instance.buffer, instance.frameSize * (instance.bitDepth/8) * instance.channelCount)
-			instance.source:play()
-		--else-- if instance.queue == Queue then
-			-- Data already pushed, processed, enqueued and set to play.
-		end
-	end
+Process.stream = function()
+	-- Not Yet Implemented.
 end
 
 
+
+Process.queue = function()
+	-- Not Yet Implemented.
+end
+
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Helper functions that need to be called to recalculate multiple internals from varied methods.
 
 -- Makes pitch shifting and time stretching possible.
-local function calculatePlaybackCoefficients(instance)
-	instance.innerOffset = instance.resampleRatio                                                             * instance.pitchShift * math.sgn(instance.timeDilation)
-	instance.outerOffset = instance.resampleRatio * (instance.timeDilation * math.sgn(instance.resampleRatio) - instance.pitchShift * math.sgn(instance.timeDilation))
+local function calculateTSMCoefficients(instance)
+	instance.innerOffset = instance.resampleRatio 
+	                     * instance.pitchShift    * math.sgn(instance.timeStretch)
+	instance.outerOffset = instance.resampleRatio *
+	                     ( instance.timeStretch   * math.sgn(instance.resampleRatio)
+	                     - instance.pitchShift    * math.sgn(instance.timeStretch))
 end
 
+-- Pre-calculates how stereo sources should have their panning set.
 local function calculatePanningCoefficients(instance)
-	if instance.channelCount == 2 then
-	instance._panL, instance._panR = instance.panlawfunc(instance.pan)
-	end
+	instance.panL, instance.panR = instance.panLawFunc(instance.panning)
 end
 
--------------------------------
+-- Pre-calculates values needed for uniformly random buffer resizing.
+local function calculateFrameCoefficients(instance)
+	local lLimit = math.floor(1 * 0.001 * instance.samplingRate + 0.5) -- 1 ms
+	local uLimit = instance.maxBufferSize
+	instance.minFrameSize = math.max(lLimit, instance.frameSize - instance.frameVariance)
+	instance.maxFrameSize = math.min(uLimit, instance.frameSize + instance.frameVariance)
+end
+
+
+
+----------------------------------------------------------------------------------------------------
 
 -- Class
+
 local ASource = {}
 
--- Method called in this thread automatically.
-function ASource.update(instance, dt)
-	while instance.source:getFreeBufferCount() > 0 do
-		Generator[instance._type](instance)
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Metatable
+
+local mtASource = {__index = function(instance, method)
+	-- Call our own methods.
+	if ASource[method] then
+		return ASource[method]
+	else
+		-- Call original methods we didn't re-implement.
+		if instance.source[method] then
+			return instance.source[method]
+		end
 	end
+end}
+
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Constructor (not part of the class)
+
+local function new(a,b,c,d,e)
+	-- Decode parameters.
+	local sourcetype
+	if type(a) == 'nil' then
+		error("ASource constructor: Missing 1st parameter; it can be one of the following:\n" ..
+			"string, File, FileData, Decoder, SoundData, number.")
+	elseif type(a) == 'number' then
+		-- Queueable type.
+		if type(b) ~= 'number' then
+			error(("ASource constructor: 2nd parameter must be a number; " ..
+				"got %s instead."):format(type(b)))
+		end
+		if type(c) ~= 'number' then
+			error(("ASource constructor: 3rd parameter must be a number; " ..
+				"got %s instead."):format(type(c)))
+		end
+		if type(d) ~= 'number' then
+			error(("ASource constructor: 4th parameter must be a number; " ..
+				"got %s instead."):format(type(d)))
+		end
+		if not ({8 = true, 16 = true})[b] then
+			error(("ASource constructor: 2nd parameter must be either 8 or 16; " ..
+				"got %f instead."):format(b))
+		end
+		if not ({1 = true, 2 = true})[c] then
+			error(("ASource constructor: 3rd parameter must be either 1 or 2; " ..
+				"got %f instead."):format(c))
+		end
+		sourcetype = 'queue'
+	elseif a.type and a:type() ~= 'SoundData' then
+		-- Static/stream types (excluding static ones from a SoundData object).
+		if type(b) ~= 'string' then
+			error(("ASource constructor: 2nd parameter must be a string; " ..
+				"got %s instead."):format(type(b)))
+		end
+		if not ({static = true, stream = true})[b] then
+			error(("ASource constructor: 2nd parameter must be either `static` or `stream`; " ..
+				"got %s instead."):format(tostring(b)))
+		end
+		sourcetype = b
+	elseif             type(a) == 'string'   or
+		   a.type and a:type() == 'File'     or
+		   a.type and a:type() == 'FileData'
+	then
+		-- No special handling here.
+	else
+		error(("ASource constructor: 1st parameter was %s; must be one of the following:\n" ..
+			"string, File, FileData, Decoder, SoundData, number."):format(tostring(a)))
+	end
+
+
+
+	-- /!\ ONLY STATIC TYPE SUPPORTED CURRENTLY.
+	if sourcetype ~= 'static' then
+		error("Can't yet create streaming or queue type sources!")
+	end
+
+
+
+	-- The instance we're constructing.
+	local instance = {}
+
+	-- Load in initial data.
+	if sourcetype == 'queue' then
+		-- We only have format parameters.
+		instance.data           = false
+		instance.samplingRate   = a
+		instance.bitDepth       = b
+		instance.channelCount   = c
+		instance.OALBufferCount = d
+	else
+		if sourcetype == 'static' then
+			if              type(a) == 'string'   or
+				a.type and a:type() == 'File'     or
+				a.type and a:type() == 'FileData'
+			then
+				-- Load from given path, file object reference, or memory-mapped file data object.
+				-- This might not work for File and/or FileData, but it will by inserting
+				-- a Decoder in-between. Source says this already does that, however.
+				instance.data = love.sound.newSoundData(a)
+			elseif a.type and a:type() == 'Decoder'
+			then
+				-- We create a new SoundData from the given Decoder object; fully decoded.
+				instance.data = love.sound.newSoundData(a)
+			elseif a.type and a:type() == 'SoundData'
+			then
+				-- We set the data to the provided object.
+				instance.data = a
+			end
+		else--if sourcetype == 'stream' then
+			if              type(a) == 'string'   or
+				a.type and a:type() == 'File'     or
+				a.type and a:type() == 'FileData'
+			then
+				-- Load from given path, file object reference, or memory-mapped file data object.
+				-- Initial decoder object will return default sized SoundData objects.
+				instance.data = love.sound.newDecoder(a)
+			elseif a.type and a:type() == 'Decoder'
+			then
+				-- We store the provided Decoder object.
+				instance.data = a
+			end
+		end
+
+		-- Fill out format parameters.
+		instance.samplingRate = instance.data:getSampleRate()
+		instance.bitDepth     = instance.data:getBitDepth()
+		instance.channelCount = instance.data:getChannelCount()
+
+		-- Check for optional OAL buffer count parameter; nil for default value otherwise.
+		instance.OALBufferCount = nil
+		if              type(a) == 'string'   or
+			a.type and a:type() == 'File'     or
+			a.type and a:type() == 'FileData' or
+			a.type and a:type() == 'Decoder'
+		then
+			instance.OALBufferCount = type(c) == 'number' and c
+		elseif a.type and a:type() == 'SoundData'
+		then
+			instance.OALBufferCount = type(b) == 'number' and b
+		end
+	end
+
+	-- Check for optional output aurality param.; default is input aurality, a.k.a. channel count.
+	instance.outputAurality = instance.channelCount
+	if sourcetype == 'queue' then
+		instance.outputAurality = type(e) == 'number' and e
+	else
+		if              type(a) == 'string'   or
+			a.type and a:type() == 'File'     or
+			a.type and a:type() == 'FileData' or
+			a.type and a:type() == 'Decoder'
+		then
+			instance.outputAurality = type(d) == 'number' and d
+		elseif a.type and a:type() == 'SoundData'
+		then
+			instance.outputAurality = type(c) == 'number' and c
+		end
+	end
+
+	-- Set up fields not coming from the constructor arguments.
+	do
+		-- The type of this instance.
+		instance.type = sourcetype
+
+		-- Size of the buffer used for processing; it's never resized, just framed.
+		instance.maxBufferSize = 65536
+		-- Size of the frame we use for applying effects onto the data, without variance.
+		instance.frameSize     =  2048
+		-- The amount of frame size variance centered on the above value, in smp-s.
+		instance.frameVariance =     0
+		-- The pre-calculated min, max and currently applied frame size, for performance reasons.
+		instance.minFrameSize  = nil
+		instance.maxFrameSize  = nil
+		instance.curFrameSize  = nil
+		calculateFrameCoefficients(instance)
+
+		-- The playback state; stopped by default.
+		instance.playing = false
+		-- The playback pointer in smp-s that is used as an offset into the data; can be fractional.
+		instance.playbackOffset = 0.0
+
+		-- Whether the playback should loop.
+		instance.looping = false
+		-- The start and end points in smp-s that define the loop region; can be disjunct by having
+		-- the endpoint before the startpoint. Points are inclusive.
+		-- By default, the loop region is either the entirety of the given input, or the frame size
+		-- for queue-type sources. 
+		instance.loopRegionA = 0
+		instance.loopRegionB = 0
+		-- Helper variable to guarantee playback not being initially locked between the loop region.
+		-- False by default, stopping and redefining the loop region resets the field to false.
+		-- If no special region is defined, then this turns true instantly when starting playback.
+		instance.loopRegionEntered = false
+
+		-- The indice of the interpolation method used when rendering data into the buffer.
+		-- Default is 1 for linear.
+		instance.itplMethodIdx = 1
+
+		-- Resampling ratio; the simple way of combined speed and pitch modification.
+		instance.resampleRatio = 1.0
+		-- Time stretching; Uses Time-Scale Modification as the method.
+		instance.timeStretch   = 1.0
+		-- Pitch shifting; stored both as a ratio, and in semitones for accuracy.
+		instance.pitchShift    = 1.0
+		instance.pitchShiftSt  = 0
+		-- The pre-calculated playback rate coefficients, for performance reasons.
+		-- The rate of smp advancement in one frame and the rate of frame advancement, respectively.
+		instance.innerOffset = nil
+		instance.outerOffset = nil
+		calculateTSMCoefficients(instance)
+
+		-- The panning law string and the function in use.
+		instance.panLaw     = 'gain'
+		instance.panLawFunc = PanLaws[instance.panLaw]
+
+		-- Panning value; operates on input so even with mono output, this has an impact.
+		-- Can go from 0.0 to 1.0; default is 0.5 for centered.
+		instance.panning = 0.5
+		-- The pre-calculated left and right panning coefficients, for performance reasons.
+		instance.panL = nil
+		instance.panR = nil
+		calculatePanningCoefficients(instance)
+
+		-- Stereo separation value; operates on input so even with mono output, this has an impact.
+		-- Can go from 0% to 200%, values above 100% mix one channel with the phase inverted.
+		instance.separation = 1.0
+	end
+
+	-- Create internal buffer; format adheres to output.
+	instance.buffer = love.sound.newSoundData(
+		instance.maxBufferSize,
+		instance.samplingRate,
+		instance.bitDepth,
+		instance.outputAurality
+	)
+
+	-- Create internal queueable source; format adheres to output.
+	instance.source = love.audio.newQueueableSource(
+		instance.samplingRate,
+		instance.bitDepth,
+		instance.outputAurality,
+		instance.OALBufferCount
+	)
+
+	-- Set default loop region's end point.
+	if instance.type == 'queue' then
+		instance.loopRegionB = instance.frameSize - 1
+	elseif instance.type == 'static' then
+		instance.loopRegionB = instance.data:getSampleCount() - 1
+	else--if instance.type == 'stream' then
+		instance.loopRegionB = instance.data:getDuration() * instance.samplingRate - 1
+	end
+
+	-- Set up method calls.
+	setmetatable(instance, mtASource)
+
+	-- Make the instance have an unique id, and add instance to the internal tables.
+	local id = #ASourceList
+	instance.id = id
+	ASourceList[id] = clone
+	ASourceIMap[id] = id
+
+	-- Return the id number so a proxy instance can be constructed on the caller thread.
+	return id
 end
 
+
+
+----------------------------------------------------------------------------------------------------
+
 -- Copy-constructor
+
 function ASource.clone(instance)
 	local clone = {}
 
+	-- Shallow-copy over all parameters as an initial step.
 	for k,v in pairs(instance) do
 		clone[k] = v
 	end
 
-	-- Needs to be in the stopped state by default.
+	-- Set the playback state to stopped, which also resets the pointer to the start.
+	-- Due to reverse playback support, the start point is dependent on the playback direction.
 	clone._isPlaying = false
-
-	-- Deep-copy specific fields that need it.
-
-	-- .data -> if it's a SoundData, then it doesn't need to be duplicated since we don't allow
-	--          messing with the contents, however, if it's a Decoder, it presents more issues.
-	if clone.data:type() == 'Decoder' then
-		if instance.orig then
-			-- This means it came from a (Dropped)File.
-			clone.data = love.sound.newDecoder(instance.orig)
-		else
-			-- We can just clone the decoder (since löve 11.3)
-			clone.data = instance.data:clone()
-		end
+	if     clone.type == 'static' then
+		clone.pointer = clone.timeDilation >= 0 and 0 or math.max(0, clone.data:getSampleCount()-1)
+	elseif clone.type == 'stream' then
+		-- Not Yet Implemented.
+	else--if clone.type == 'queue' then
+		-- Not Yet Implemented.
 	end
 
-	-- .source -> clone it neatly.
-	clone.source = instance.source:clone()
+	-- Data source object: SoundData gets referenced by the shallow-copy above;
+	--                     Decoder gets cloned, Queue has none.
+	if clone.type == 'stream' then
+		-- This should work even if the Decoder was created from a DroppedFile.
+		clone.data = instance.data:clone()
+	end
 
-	-- .buffer -> create a unique SoundData.
+	-- Buffer object: Create an unique one.
 	clone.buffer = love.sound.newSoundData(
-		clone.bufferSize,
+		clone.maxBufferSize,
 		clone.samplingRate,
 		clone.bitDepth,
-		clone.channelCount)
+		clone.channelCount
+	)
 
-	-- Set up more internals.
-	calculatePlaybackCoefficients(clone)
+	-- Internal QSource object: Clone it.
+	clone.source = instance.source:clone()
+
+	-- Make sure all internals are configured correctly.
+	calculateTSMCoefficients(clone)
 	calculatePanningCoefficients(clone)
+	calculateFrameCoefficients(clone)
 
+	-- Set instance metatable.
 	setmetatable(clone, mtASource)
 
-	clone.id = #ASList+1
-	ASList[clone.id] = clone
-
-	return clone.id
-end
-
--- QSource related
-function ASource.queue(instance, buffer)
-	return Queue(instance, buffer)
-end
-
-function ASource.getFreeBufferCount(instance)
-	return instance.source:getFreeBufferCount()
-end
-
--- Deprecated
-function ASource.setPitch(instance)
-	error("Function deprecated by Advanced Source Library; " ..
-		"for the same functionality, use :setResamplingRatio instead.")
-end
-
-function ASource.getPitch(instance)
-	error("Function deprecated by Advanced Source Library; " ..
-		"for the same functionality, use :getResamplingRatio instead.")
-end
-
--- State manipulation
-function ASource.play(instance)
-	instance._isPlaying = true
-	return true
-end
-
-function ASource.pause(instance)
-	instance._isPlaying = false
-	return true
-end
-
-function ASource.rewind(instance)
-	instance.pointer = instance.timeDilation >= 0 and 0 or math.max(0, instance.data:getSampleCount()-1)
-	return true
-end
-
-function ASource.stop(instance)
-	instance:pause()
-	instance:rewind()
-	return true
-end
-
-function ASource.isPlaying(instance)
-	-- To those that miss the below functions:
-	-- - isPaused  = not isPlaying
-	-- - isStopped = not isPlaying and (tell() == 0 or tell() == math.max(0, getSampleCount()-1))
-	return instance._isPlaying
-end
-
-function ASource.seek(instance, position, unit)
-	-- TODO: Can we really not? We could mess with the AS object's buffer pointer...
-	assert(instance._type ~= 'queue',
-		"Can't seek Queuable sources.")
-
-	unit = unit or 'seconds'
-
-	assert(TimeUnit[unit],
-		"Unsupported TimeUnit: " .. tostring(unit))
-
-	if instance._type == 'static' then
-		if unit == 'samples' then
-			assert(position >= 0 and position < instance.data:getSampleCount(),
-				"Attempted to seek outside of data range.")
-			instance.pointer = position
-		else
-			assert(position >= 0 and position < instance.data:getDuration(),
-				"Attempted to seek outside of data range.")
-			instance.pointer = math.floor(position * instance.samplingRate)
-		end
-	elseif instance._type == 'stream' then
-		if unit == 'samples' then
-			assert(position >= 0 and position < instance.data:getDuration() * instance.samplingRate,
-				"Attempted to seek outside of data range.")
-			instance.pointer = position
-		else
-			assert(position >= 0 and position < instance.data:getDuration(),
-				"Attempted to seek outside of data range.")
-			instance.pointer = math.floor(position * instance.samplingRate)
-		end
-	end
-end
-
-function ASource.tell(instance, unit)
-
-	unit = unit or 'seconds'
-
-	assert(TimeUnit[unit],
-		"Unsupported TimeUnit: " .. tostring(unit))
-
-	-- This works with queueable sources as well; it probably did work the same way before, too.
-	if unit == 'samples' then
-		return instance.pointer
-	else
-		return instance.pointer / instance.samplingRate
-	end
-end
-
--- Looping related
-function ASource.setLooping(instance, state)
-	assert(instance._type ~= 'queue',
-		"Can't set looping behaviour on Queuable sources.")
-	assert(type(state) == 'boolean',
-		"Parameter must be boolean.")
-
-	instance.looping = state
-end
-
-function ASource.isLooping(instance)
-	assert(instance._type ~= 'queue',
-		"Can't query looping behaviour on Queuable sources.")
-
-	return instance.looping
-end
-
-function ASource.setLoopPoints(instance, startpoint, endpoint)
-	assert(instance._type ~= 'queue',
-		"Can't set loop points on Queuable sources.")
-
-	assert(type(startpoint) == 'number',
-		"Given start point parameter not a number.")
-	assert(type(endpoint)   == 'number',
-		"Given end point parameter not a number.")
-	assert(startpoint < endpoint,
-		"Given startpoint parameter must be less than endpoint parameter.")
-	assert(startpoint >= 0,
-		"Given startpoint parameter must be larger than zero.")
-	assert(endpoint >= 0,
-		"Given endpoint parameter must be larger than zero.")
-
-	-- Also assert based on actual audio file loaded... both with static and stream sources.
-	if instance._type == 'static' then
-		assert(startpoint < instance.data:getSampleCount(),
-			"Given startpoint exceeds length of SoundData.")
-		assert(endpoint < instance.data:getSampleCount(),
-			"Given endpoint exceeds length of SoundData.")
-	elseif instance._type == 'stream' then
-		assert(startpoint < instance.data:getDuration() * instance.data:getSampleRate(),
-			"Given startpoint exceeds length reported by Decoder.")
-		assert(endpoint < instance.data:getDuration() * instance.data:getSampleRate(),
-			"Given endpoint exceeds length reported by Decoder.")
-	end
-
-	instance.startpoint = startpoint
-	instance.endpoint   = endpoint
-end
-
-function ASource.getLoopPoints(instance)
-	assert(instance._type ~= 'queue',
-		"Can't query loop points from Queuable sources.")
-
-	return instance.startpoint, instance.endpoint
-end
-
--- Format getters
-function ASource.getBitDepth(instance)
-	return instance.bitDepth
-end
-
-function ASource.getChannelCount(instance)
-	return instance.channelCount
-end
-
-function ASource.getDuration(instance, unit)
-	unit = unit or 'seconds'
-
-	assert(TimeUnit[unit],
-		"Unsupported TimeUnit: " .. tostring(unit))
-
-	if instance._type == 'static' then
-		if unit == 'samples' then
-			return instance.data:getSampleCount()
-		else
-			return instance.data:getDuration()
-		end
-	elseif instance._type == 'stream' then 
-		if unit == 'samples' then
-			return instance.data:getDuration() * instance.samplingRate
-		else
-			return instance.data:getDuration()
-		end
-	end
-
-	-- Queue sources don't support this since they could go on forever, theoretically;
-	-- but löve default behaviour returns -1 here for them, so we should too.
-	return -1
-end
-
-function ASource.getSampleRate(instance)
-	return instance.samplingRate
-end
-
-function ASource.getType(instance)
-	return instance._type
-end
-
-
-function ASource.getBufferSize(instance, unit)
-	unit = unit or 'milliseconds'
-
-	assert(BufferUnit[unit],
-		"Unsupported BufferUnit: " .. tostring(unit))
-
-	if unit == 'samples' then
-		return instance.frameSize
-	else--if unit == 'milliseconds' then
-		return instance.frameSize / instance.samplingRate * 1000
-	end
-end
-
-function ASource.setBufferSize(instance, amount, unit)
-	unit = unit or 'milliseconds'
-
-	assert(BufferUnit[unit],
-		"Unsupported BufferUnit: " .. tostring(unit))
-
-	if unit == 'samples' then
-		assert(type(amount) == 'number' and amount > 0 and amount <= 65536 and amount == math.floor(amount),
-			"Buffer size in samplepoints must be given as a positive nonzero integer, 65536 at most.")
-		instance.frameSize = amount
-	else--if unit == 'milliseconds' then
-		assert(type(amount) == 'number' and amount * instance.samplingRate * 0.001 > 0.0 and amount * instance.samplingRate * 0.001 <= 65536,
-			"Buffer size in milliseconds must be given as a positive nonzero number, equivalent to 65536 samplepoints at most.")
-		instance.frameSize = math.floor(amount * instance.samplingRate * 0.001 + 0.5)
-	end
-end
-
--- Time-domain manipulation
-function ASource.getPitchShift(instance, unit)
-	unit = unit or 'ratio'
-
-	assert(PitchUnit[unit],
-		("Pitch shift unit %s unsupported."):format(tostring(unit)))
-
-	if unit == 'ratio' then
-		return instance.pitchShift
-	else
-		return instance.pitchShiftSt
-	end
-end
-
-function ASource.setPitchShift(instance, amount, unit)
-
-	-- range: (0,)
-	-- shift amount saved internally
-	-- amount sets first value only
-	-- needs special exception for second value logic
-
-	--[[
-		0.0,  N/A  ->  0.0,   0.0  * buffer.size -- -inf semitones (true stop) -- not possible.
-		----------------------------------------
-		0.5,  N/A  ->  0.5,  -any  * buffer.size -- -12  semitones up
-		0.75, N/A  ->  0.75, -any  * buffer.size -- -~6  semitones up
-		1.0,  N/A  ->  1.0,  -any  * buffer.size -- +-0  semitones up
-		1.5,  N/A  ->  1.5,  -any  * buffer.size -- +~6  semitones up
-		2.0,  N/A  ->  2.0,  -any  * buffer.size -- +12  semitones up
-		----------------------------------------
-		0.5,  N/A  ->  0.5,  +any  * buffer.size -- -12 semitones down
-		0.75, N/A  ->  0.75, +any  * buffer.size -- -~6 semitones down
-		1.0,  N/A  ->  1.0,  +any  * buffer.size -- +-0 semitones down
-		1.5,  N/A  ->  1.5,  +any  * buffer.size -- +~6 semitones down
-		2.0,  N/A  ->  2.0,  +any  * buffer.size -- +12 semitones down
-	--]]
-
-	assert(type(amount) == 'number',
-		"Pitch shifting amount must be a number.")
-
-	unit = unit or 'ratio'
-
-	assert(PitchUnit[unit],
-		("Pitch shift unit %s unsupported."):format(tostring(unit)))
-
-	if (unit == 'ratio') and (amount <= 0) then
-		error("Pitch shift amount can't be lower or equal to 0.")
-	end
-
-	instance.pitchShift = (unit == 'ratio') and 
-		amount or 2^(amount/12)
-	instance.pitchShiftSt = (unit == 'semitones') and
-		amount or (math.log(amount)/math.log(2))*12
-
-	calculatePlaybackCoefficients(instance)
-end
-
-function ASource.getResamplingRatio(instance)
-	return instance.resampleRatio
-end
-
-function ASource.setResamplingRatio(instance, ratio)
-
-	-- range: (,)
-	-- resampling rate saved internally
-	-- rate multiplies both values
-
-	--[[
-		2.0  ->  2.0,  -2.0  * buffer.size --   2x resample forwards  ( 200%, +12st)
-		1.5  ->  1.5,  -1.5  * buffer.size -- 3/2x resample forwards  ( 150%,  +6st)
-		1.0  ->  1.0,  -1.0  * buffer.size --   1x resample forwards  ( 100%,   0st)
-		0.75 ->  0.75, -0.75 * buffer.size -- 3/4x resample forwards  (  75%,  -6st)
-		0.5  ->  0.5,  -0.5  * buffer.size -- 1/2x resample forwards  (  50%, -12st)
-		0.25 ->  0.25, -0.25 * buffer.size -- 1/4x resample forwards  (  25%, -24st)
-		----------------------------------
-		0.0  ->  0.0,   0.0  * buffer.size --   0x resample playback  (true stop)
-		----------------------------------
-		0.25 -> -0.25,  0.25 * buffer.size -- 1/4x resample backwards ( -25%, -24st)
-		0.5  -> -0.5,   0.5  * buffer.size -- 1/2x resample backwards ( -50%, -12st)
-		0.75 -> -0.75,  0.75 * buffer.size -- 3/4x resample backwards ( -75%,  -6st)
-		1.0  -> -1.0,   1.0  * buffer.size --   1x resample backwards (-100%,   0st)
-		1.5  -> -1.5,   1.5  * buffer.size -- 3/2x resample backwards (-150%,  +6st)
-		2.0  -> -2.0,   2.0  * buffer.size --   2x resample backwards (-200%, +12st)
-	--]]
-
-	assert(type(ratio) == 'number',
-		"Resampling ratio must be a number.")
-
-	instance.resampleRatio = ratio
-
-	calculatePlaybackCoefficients(instance)
-end
-
-function ASource.getTimeStretch(instance)
-	return instance.timeDilation
-end
-
-function ASource.setTimeStretch(instance, ratio)
-
-	-- range: (,)
-	-- stretch amount saved internally
-	-- amount sets second value only
-	-- amount's sign applied to first value (* amount>=0 and 1.0 or -1.0)
-	-- above works for 0 as well
-
-	--[[
-		N/A,  2.0  -> +any,  -2.0  * buffer.size -- 200% playback forwards
-		N/A,  1.5  -> +any,  -1.5  * buffer.size -- 150% playback forwards
-		N/A,  1.0  -> +any,  -1.0  * buffer.size -- 100% playback forwards
-		N/A,  0.75 -> +any,  -0.75 * buffer.size --  75% playback forwards
-		N/A,  0.5  -> +any,  -0.5  * buffer.size --  50% playback forwards
-		N/A,  0.25 -> +any,  -0.25 * buffer.size --  25% playback forwards
-		----------------------------------------
-		N/A,  0.0  -> +any,   0.0  * buffer.size --   0% playback forwards  (stutter)
-		N/A,  0.0  -> -any,   0.0  * buffer.size --   0% playback backwards (stutter)
-		----------------------------------------
-		N/A, -0.25 -> -any,   0.25 * buffer.size --  25% playback backwards
-		N/A, -0.5  -> -any,   0.5  * buffer.size --  50% playback backwards
-		N/A, -0.75 -> -any,   0.75 * buffer.size --  75% playback backwards
-		N/A, -1.0  -> -any,   1.0  * buffer.size -- 100% playback backwards
-		N/A, -1.5  -> -any,   1.5  * buffer.size -- 150% playback backwards
-		N/A, -2.0  -> -any,   2.0  * buffer.size -- 200% playback backwards
-	--]]
-
-	assert(type(ratio) == 'number',
-		"Time stretching ratio must be a number.")
-
-	instance.timeDilation = ratio
-
-	calculatePlaybackCoefficients(instance)
+	-- Make clone have an unique id, and add instance to the internal tables.
+	local id = #ASourceList
+	clone.id = id
+	ASourceList[id] = clone
+	ASourceIMap[id] = id
+
+	-- Return the id number so a proxy instance can be constructed on the caller thread.
+	return id
 end
 
 
 
--- Interpolation related
-function ASource.getInterpolationMethod(instance)
-	return ItpMethod[instance.interpolation]
-end
+----------------------------------------------------------------------------------------------------
 
-function ASource.setInterpolationMethod(instance, method)
-	assert(iItpMethod[method],
-		("Interpolation method %s unsupported."):format(tostring(method)))
-	instance.interpolation = iItpMethod[method]
-end
-
-
-
--- Effects related
-function ASource.getEffect(instance, ...)
-	return instance.source:getEffect(...)
-end
-
-function ASource.setEffect(instance, ...)
-	return instance.source:setEffect(...)
-end
-
-function ASource.getFilter(instance, ...)
-	return instance.source:getFilter(...)
-end
-
-function ASource.setFilter(instance, ...)
-	return instance.source:setFilter(...)
-end
-
-function ASource.getActiveEffects(instance, ...)
-	return instance.source:getActiveEffects(...)
-end
-
--- Spatial functionality
-function ASource.getAirAbsorption(instance, ...)
-	return instance.source:getAirAbsorption(...)
-end
-function ASource.setAirAbsorption(instance, ...)
-	return instance.source:setAirAbsorption(...)
-end
-function ASource.getAttenuationDistances(instance, ...)
-	return instance.source:getAttenuationDistances(...)
-end
-function ASource.setAttenuationDistances(instance, ...)
-	return instance.source:setAttenuationDistances(...)
-end
-function ASource.getCone(instance, ...)
-	return instance.source:getCone(...)
-end
-function ASource.setCone(instance, ...)
-	return instance.source:setCone(...)
-end
-function ASource.getDirection(instance, ...)
-	return instance.source:getDirection(...)
-end
-function ASource.setDirection(instance, ...)
-	return instance.source:setDirection(...)
-end
-function ASource.getPosition(instance, ...)
-	return instance.source:getPosition(...)
-end
-function ASource.setPosition(instance, ...)
-	return instance.source:setPosition(...)
-end
-function ASource.getRolloff(instance, ...)
-	return instance.source:getRolloff(...)
-end
-function ASource.setRolloff(instance, ...)
-	return instance.source:setRolloff(...)
-end
-function ASource.getVelocity(instance, ...)
-	return instance.source:getVelocity(...)
-end
-function ASource.setVelocity(instance, ...)
-	return instance.source:setVelocity(...)
-end
-function ASource.isRelative(instance, ...)
-	return instance.source:isRelative(...)
-end
-function ASource.setRelative(instance, ...)
-	return instance.source:setRelative(...)
-end
-function ASource.getVolumeLimits(instance, ...)
-	return instance.source:getVolumeLimits(...)
-end
-function ASource.setVolumeLimits(instance, ...)
-	return instance.source:setVolumeLimits(...)
-end
-function ASource.getVolume(instance, ...)
-	return instance.source:getVolume(...)
-end
-function ASource.setVolume(instance, ...)
-	return instance.source:setVolume(...)
-end
-
--- Stereo Panning related
-function ASource.getPanning(instance)
-	return instance.pan
-end
-
-function ASource.setPanning(instance, balance)
-	if balance < 0.0 or balance > 1.0 then
-		error "Panning values must be between 0 and 1!"
-	end
-	instance.pan = balance
-	calculatePanningCoefficients(instance)
-end
-
-function ASource.getPanLaw(instance)
-	return instance.panlaw == 'custom' and instance.panlawfunc or instance.panlaw
-end
-
-function ASource.setPanLaw(instance, law)
-	if type(law) == 'string' and not (law == 'gain' or law == 'power') then
-		error "Given panning law string not supported; must be 'gain' or 'power'!"
-	end
-	if type(law) == 'function' then
-		-- Test given function with some inputs
-		for i,v in ipairs{0.00, 0.25, 0.33, 0.50, 0.67, 1.00} do
-			local ok, l,r = pcall(law, v)
-			if not ok then
-				error(("The given pan law function is errorenous: %s"):format(l))
-			else
-				if type(l) ~= 'number' or type(r) ~= 'number' then
-					error "The given pan law function must return two numbers!"
-				else
-					if l < 0.0 or l > 1.0 or r < 0.0 or r > 1.0 then
-						error "The given pan law function's return values must be between 0.0 and 1.0!"
-					end
-				end
-			end
-		end
-		instance.panlaw = 'custom'
-		instance.panlawfunc = law
-	else --if type(law) == 'string' then
-		instance.panlaw = law
-		instance.panlawfunc = PanLaws[law]
-	end
-	calculatePanningCoefficients(instance)
-end
-
--- Stereo Separation related
-function ASource.getStereoSeparation(instance)
-	return instance.separation
-end
-
-function ASource.setStereoSeparation(instance, ssep)
-	if ssep < 0.0 or ssep > 1.0 then
-		error "Stereo Separation values must be between 0 and 1!"
-	end
-	instance.separation = ssep
-end
-
--- Object super overrides
-function ASource.release(instance)
-	-- Clean up the whole ASource, not just the internal Source object.
-	local id = instance.id
-	if instance.data then instance.data:release() end
-	instance.buffer:release()
-	instance.source:release()
-	for k,v in pairs(instance) do k = nil end
-	table.remove(ASList, id)
-end
+-- Base class overrides (Object)
 
 function ASource.type(instance)
 	return 'ASource'
@@ -1109,222 +894,801 @@ function ASource.typeOf(instance, type)
 	return false
 end
 
--- Metatable
-local mtASource = {__index = function(instance, method)
-	if ASource[method] then
-		return ASource[method]
+function ASource.release(instance)
+	-- Clean up the whole instance itself.
+	local id = instance.id
+	if instance.data then instance.data:release() end
+	instance.buffer:release()
+	instance.source:release()
+	for k,v in pairs(instance) do k = nil end
+
+	-- Remove the instance from both tables we do book-keeping in.
+	local this = ASourceList[ASourceIMap[id]]
+	local last = ASourceList[#ASourceList]
+	if this == last then
+		-- There's only one instance, or we're deleting the last one in the list.
+		ASourceList[ASourceIMap[id]] = nil
 	else
-		if instance.source[method] then
-			return instance.source[method]
-		end
+		-- Remove the instance, move the last one in the list to the removed one's position.
+		-- Also update the indice mapping table as well.
+		local lastid = ASourceList[#ASourceList].id
+		ASourceList[ASourceIMap[id]] = ASourceList[#ASourceList]
+		ASourceList[#ASourceList]    = nil
+		ASourceIMap[lastid]          = ASourceIMap[id]
 	end
-end}
-
--- Generic constructor:
--- - SourceType type, String path
--- - SourceType type, File file
--- - Decoder decoder
--- - SoundData sounddata
--- - Number samplerate, Number bitdepth, Number channels, Number buffercount
-new = function(a, b, c, d)
-
-	-- Create instance.
-	local asource = {}
-
-	-- Set initial values.
-	asource.orig           =   nil -- used for cloning (deep-copying) internal SD or DC objects...
-	asource.type           =   nil
-
-	asource._isPlaying     = false
-
-	asource.bitDepth       =     8
-	asource.bufferCount    =     8 -- OALS internal buffer count; unrelated to most things here.
-	asource.channelCount   =     1
-	asource.samplingRate   =  8000
-
-	asource.bufferSize     = 65536 -- Set to maximum allowed value, never changed.
-	asource.frameSize      =   400 -- 50 ms by default, this is a placeholder value.
-	asource.pitchShift     =     1 -- 1 means no pitch modification; tied with parameter below.
-	asource.pitchShiftSt   =     0 -- 0 means no semitone offset; tied with parameter above.
-	asource.resampleRatio  =     1 -- 1 means regular rate.
-	asource.timeDilation   =     1 -- 1 means regular forward playback. (TODO: Rename to stretch?)
-	asource.interpolation  =     1 -- see at the top for the enums.
-
-	asource.innerOffset    =     1 -- Rate of samplepoint advancement in one buffer.
-	asource.outerOffset    =    -1 -- Rate of buffer advancement.
-	
-	asource._panL          =   0.5 -- Intermediate values for panning adjustment
-	asource._panR          =   0.5 -- -"-
-
-	asource.pointer        =     0 -- Samplepoint offset into the full track.
-	asource.looping        = false
-	asource.startpoint     =     0 -- In samplepoints.
-	asource.endpoint       =     0 -- In samplepoints.
-
-	asource.separation     =   1.0 -- Percentage control of Stereo Separation.
-	asource.pan            =   0.5 -- Percentage control of Stereo Panning.
-	asource.panlaw         = 'gain' -- Panning law to use; either the strings 'gain' or 'power', or 'custom' for an arbitrary function(pan) -> Lattenuation,Rattenuation
-	asource.panlawfunc     = PanLaws.gain -- Hold onto the func ptr to make things simpler.
-
-	-- Handle specific cases just as how vanilla Source objects are handled.
-	if type(a) == 'string' then
-		assert(SourceType[a],
-			("Given SourceType parameter %s not supported"):format(tostring(a)))
-
-		if (type(b) == 'string') or
-			(b.type and (b:type() == 'File' or b:type() == 'DroppedFile')) then
-			if a == 'static' then
-				asource._type = 'static'
-				asource.data = love.sound.newSoundData(b)
-				asource.orig = b
-			elseif a == 'stream' then
-				asource._type = 'stream'
-				asource.data = love.sound.newDecoder(b)
-				asource.orig = b
-			else
-				error("Queueable Sources can't be created from file or filepath.")
-			end
-
-		end
-	elseif a.type and a:type() == 'SoundData' then -- shallow copy; uses the same SoundData object!
-		asource._type = 'static'
-		asource.data = a
-		asource.orig = asource.data
-	elseif a.type and a:type() == 'Decoder' then -- deep copy; clones a new decoder.
-		asource._type = 'stream'
-		asource.data = a:clone()
-		asource.orig = nil
-	elseif type(a) == 'number' then
-		asource._type = 'queue'
-		asource.orig = nil
-		asource.samplingRate = a or asource.samplingRate
-		asource.bitDepth =     b or asource.bitDepth
-		asource.channelCount = c or asource.channelCount
-		asource.bufferCount =  d or asource.bufferCount
-	else 
-		error(("Given parameter %s not suppoted"):format(tostring(a)))
-	end
-
-	-- Store data parameters, if extant.
-	if asource.data then
-		asource.samplingRate = asource.data:getSampleRate()
-		asource.bitDepth     = asource.data:getBitDepth()
-		asource.channelCount = asource.data:getChannelCount()
-
-		-- Try setting the default loop endpoint to the end of the waveform.
-		if asource._type == 'static' then
-			asource.endpoint = asource.data:getSampleCount()
-		elseif asource._type == 'stream' then
-			asource.endpoint = asource.data:getDuration() * asource.samplingRate
-		end
-	end
-
-	-- Create internal Qsource.
-	asource.source = love.audio.newQueueableSource(
-		asource.samplingRate,
-		asource.bitDepth,
-		asource.channelCount,
-		asource.bufferCount)
-
-	-- Create internal Buffer.
-	asource.buffer = love.sound.newSoundData(
-		asource.bufferSize,
-		asource.samplingRate,
-		asource.bitDepth,
-		asource.channelCount)
-
-	-- Set up more internals.
-	calculatePlaybackCoefficients(asource)
-	calculatePanningCoefficients(asource)
-	asource.frameSize =  50.0 * asource.samplingRate * 0.001
-
-	-- Make this work more or less like a regular source.
-	setmetatable(asource, mtASource)
-
-	-- Add source to internal list
-	asource.id = #ASList+1
-	ASList[asource.id] = asource
-	
-	--------------
-	return asource.id
+	ASourceIMap[id] = nil
 end
 
--------------------------------
 
-while true do
 
-	-- Handle messages in inbound queue. Atomic ops in the other threads should guarantee ordering
-	-- of elements.
-	local data = toProc:pop()
+----------------------------------------------------------------------------------------------------
 
-	if data then
+-- Internally used across threads
 
-		-- First value is always a string
-		if type(data) == 'string' then
+function ASource.getInternalSource(instance)
+	return instance.source
+end
 
-			if data == 'procThread!' then
 
-				-- Store the next value in queue as this thread's memory address.
-				procThread = toProc:pop()
 
-			elseif data == 'procThread?' then
+----------------------------------------------------------------------------------------------------
 
-				-- Send back this thread's memory address using the channel which is the next value
-				-- in the queue.
-				local ch = toProc:pop()
-				ch:push(procThread)
+-- Deprecations
 
-			elseif data == 'new' then
+function ASource.setPitch(instance)
+	error("Function deprecated by Advanced Source Library; " ..
+		"for the same functionality, use setResamplingRatio instead.")
+end
 
-				-- Construct a new ASource using parameters popped from the inbound queue.
-				-- ASource objects themselves store the inbound channel of the thread that
-				-- requested them.
-				local ch, a, b, c, d, id
-				ch = toProc:pop()
-				a  = toProc:pop()
-				b  = toProc:pop()
-				c  = toProc:pop()
-				d  = toProc:pop()
+function ASource.getPitch(instance)
+	error("Function deprecated by Advanced Source Library; " ..
+		"for the same functionality, use getResamplingRatio instead.")
+end
 
-				id = new(a, b, c, d)
 
-				-- Send back the ASource object's index through the relevant thread's inbound
-				-- channel.
-				ch:push(id)
 
-			elseif ASource[data] then
+----------------------------------------------------------------------------------------------------
 
-				-- Getters/Setters
-				-- <methodName> (above), <ch>, <id>, <paramCount>, <parameter1>, ..., <parameterN>
-				local ch = toProc:pop()
-				local id = toProc:pop()
-				local paramCount = toProc:pop()
-				local params = {}
-				if paramCount > 0 then
-					for i=1, paramCount do
-						params[i] = toProc:pop()
-					end
-				end
+-- Queue related
 
-				local obj
-				for i=1, #ASList do if ASList[i].id == id then obj = ASList[i] break end end
+function ASource.queue(instance, ...)
+	if instance.type ~= 'queue' then
+		error("Cannot call queue on a non-queueable ASource instance.")
+	end
 
-				local retval = {obj[data](obj, unpack(params))}
+	return Queue(instance, ...)
+end
 
-				ch:performAtomic(function(ch)
-					ch:push(#retval)
-					if #retval > 0 then
-						for i=1, #retval do
-							ch:push(retval[i])
-						end
-					end
-				end)
-			end
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Format related
+
+function ASource.getType(instance)
+	return instance.type
+end
+
+function ASource.getSampleRate(instance)
+	return instance.samplingRate
+end
+
+function ASource.getBitDepth(instance)
+	return instance.bitDepth
+end
+
+function ASource.getChannelCount(instance)
+	-- The user needs the output format, not the input, so we return that instead.
+	return instance.outputAurality --instance.channelCount
+end
+
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Buffer related (Note that the SoundData used for buffering is never resized for perf. reasons.)
+
+function ASource.getBufferSize(instance, unit)
+	unit = unit or 'milliseconds'
+
+	if not BufferUnit[unit] then
+		error(("1st parameter must be `milliseconds`, `samples` or left empty; " ..
+			"got %s instead."):format(tostring(unit)))
+	end
+
+	if unit == 'samples' then
+		return instance.frameSize,
+		       instance.curFrameSize
+	else--if unit == 'milliseconds' then
+		return instance.frameSize    / instance.samplingRate * 1000,
+		       instance.curFrameSize / instance.samplingRate * 1000
+	end
+end
+
+function aSource.setBufferSize(instance, size, unit)
+	unit = unit or 'milliseconds'
+
+	if not BufferUnit[unit] then
+		error(("2nd parameter must be `milliseconds`, `samples` or left empty; " ..
+			"got %s instead."):format(tostring(unit)))
+	end
+
+	if not size then
+		error("Missing 1st parameter, must be a non-negative number.")
+	end
+	if type(size) ~= number then
+		error(("1st parameter must be a non-negative number; " ..
+			"got %s instead."):format(tostring(size)))
+	end
+
+	local min, max
+	if unit == 'samples' then
+		min, max = 1, instance.maxBufferSize
+	else--if unit = 'milliseconds' then
+		min = 1                      / instance.samplingRate * 1000
+		max = instance.maxBufferSize / instance.samplingRate * 1000
+	end
+	if size < min or size > max then
+		error(("1st parameter out of range; " ..
+			"min/given/max: %f < [%f] < %f (%s)."):format(min, size, max, unit))
+	end
+
+	if unit == 'samples' then
+		instance.frameSize = size
+	else--if unit = 'milliseconds' then
+		instance.frameSize = math.floor(size * 0.001 * instance.samplingRate + 0.5)
+	end
+
+	calculateFrameCoefficients(instance)
+end
+
+function ASource.getBufferVariance(instance, unit)
+	unit = unit or 'milliseconds'
+
+	if not VarianceUnit[unit] then
+		error(("1st parameter must be `milliseconds`, `samples`, `percentage` or left empty; " ..
+			"got %s instead."):format(tostring(unit)))
+	end
+
+	if unit == 'samples' then
+		return instance.frameVariance
+	elseif unit == 'milliseconds' then
+		return instance.frameVariance / instance.samplingRate * 1000
+	else--if unit == 'percentage' then
+		return instance.frameVariance / instance.frameSize
+	end
+end
+
+function ASource.setBufferVariance(instance, variance, unit)
+	unit = unit or 'milliseconds'
+
+	if not VarianceUnit[unit] then
+		error(("2nd parameter must be `milliseconds`, `samples`, `percentage` or left empty; " ..
+			"got %s instead."):format(tostring(unit)))
+	end
+
+	if not variance then
+		error("Missing 1st parameter, must be a non-negative number.")
+	end
+	if type(variance) ~= number then
+		error(("1st parameter must be a non-negative number; " ..
+			"got %s instead."):format(tostring(variance)))
+	end
+	if variance < 0 then
+		error(("1st parameter must be a non-negative number; " ..
+			"got %f instead."):format(variance))
+	end
+
+	if unit == 'percentage' and variance > 1.0 then
+		error(("1st parameter as a percentage can't be more than 100%; " ..
+			"got %f%% (%f) instead."):format(math.floor(variance*100), variance))
+	end
+
+	if unit == 'samples' then
+		instance.frameVariance = variance
+	elseif unit == 'milliseconds' then
+		instance.frameVariance = math.floor(variance * 0.001 * instance.samplingRate + 0.5)
+	else --if unit == 'percentage' then
+		instance.frameVariance = math.floor(instance.frameSize * variance + 0.5)
+	end
+
+	calculateFrameCoefficients(instance)
+end
+
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Playback state related
+
+function ASource.isPlaying(instance)
+	return instance.playing
+end
+
+function ASource.play(instance)
+	instance.playing = true
+	return true
+end
+
+--[[
+function ASource.isPaused(instance)
+	if instance.playing then
+		return false
+	end
+
+	if instance.timeStretch >= 0 then
+		if instance:tell() == 0 then
+			return false
+		end
+	else--if instance.timeStretch < 0 then
+		local limit
+
+		if instance.type == 'static' then
+			limit = math.max(0, instance.data:getSampleCount() - 1)
+		else--if instance.type == 'stream' then
+			limit = math.max(0, instance.data:getDuration() * instance.samplingRate - 1)
+		end
+
+		if instance:tell() == limit then
+			return false
 		end
 	end
 
-	-- Update active ASources.
-	for i=1, #ASList do ASList[i]:update() end
+	return true
+end
+--]]
+
+function ASource.pause(instance)
+	instance.playing = false
+	return true
+end
+
+--[[
+function ASource.isStopped(instance)
+	if instance.playing then
+		return false
+	end
+
+	if instance.timeStretch >= 0 then
+		if instance:tell() ~= 0 then
+			return false
+		end
+	else--if instance.timeStretch < 0 then
+		local limit
+
+		if instance.type == 'static' then
+			limit = math.max(0, instance.data:getSampleCount() - 1)
+		else--if instance.type == 'stream' then
+			limit = math.max(0, instance.data:getDuration() * instance.samplingRate - 1)
+		end
+
+		if instance:tell() ~= limit then
+			return false
+		end
+	end
+
+	return true
+end
+--]]
+
+function ASource.stop(instance)
+	instance:pause()
+	instance:rewind()
+	return true
+end
+
+
+
+function ASource.tell(instance, unit)
+	unit = unit or 'seconds'
+
+	if not TimeUnit[unit] then
+		error(("1st parameter must be `seconds`, `samples` or left empty; " ..
+			"got %s instead."):format(tostring(unit)))
+	end
+
+	if instance.type == 'queue' then
+		-- Tell the source object.
+		return instance.source:tell(unit)
+
+	else
+		if unit == 'samples' then
+			return instance.playbackOffset
+		else
+			return instance.playbackOffset / instance.samplingRate
+		end
+	end
+end
+
+function ASource.seek(instance, position, unit)
+	unit = unit or 'seconds'
+
+	if not TimeUnit[unit] then
+		error(("2nd parameter must be `seconds`, `samples` or left empty; " ..
+			"got %s instead."):format(tostring(unit)))
+	end
+
+	if not position then
+		error("Missing 1st parameter, must be a non-negative number.")
+	end
+	if type(position) ~= number then
+		error(("1st parameter must be a non-negative number; " ..
+			"got %s instead."):format(tostring(position)))
+	end
+	if position < 0 then
+		error(("1st parameter must be a non-negative number; " ..
+			"got %f instead."):format(position))
+	end
+
+	if instance.type == 'queue' then
+		-- Seek the source object.
+		instance.source:seek(position, unit)
+
+	else
+		if unit == 'samples' then
+			local limit
+
+			if instance.type == 'static' then
+				limit = instance.data:getSampleCount()
+			else--if instance.type == 'stream' then
+				limit = instance.data:getDuration() * instance.samplingRate
+			end
+
+			if position >= limit then
+				error(("1st parameter outside of data range; " ..
+					"%f > %f."):format(position, limit))
+			end
+
+			instance.playbackOffset = position
+
+		else--if unit == 'seconds' then
+			local limit
+
+			if instance.type == 'static' then
+				limit = instance.data:getDuration()
+			else--if instance.type == 'stream' then
+				limit = instance.data:getDuration()
+			end
+
+			if position >= limit then
+				error(("1st parameter outside of data range; " ..
+					"%f > %f."):format(position, limit))
+			end
+
+			instance.playbackOffset = position * instance.samplingRate
+		end
+
+		-- Seeking resets initial loop state.
+		instance.loopRegionEntered = false
+	end
+end
+
+function ASource.getDuration(instance, unit)
+	unit = unit or 'seconds'
+
+	if not TimeUnit[unit] then
+		error(("1st parameter must be `seconds`, `samples` or left empty; " ..
+			"got %s instead."):format(tostring(unit)))
+	end
+
+	if instance.type == 'queue' then
+		-- Get the duration of the source object.
+		return instance.source:getDuration(unit)
+	else
+		if unit == 'samples' then
+			if instance.type == 'static' then
+				return instance.data:getSampleCount()
+			else--if instance.type == 'stream' then
+				return instance.data:getDuration() * instance.samplingRate
+			end
+		else--if unit == 'seconds' then
+			if instance.type == 'static' then
+				return instance.data:getDuration()
+			else--if instance.type == 'stream' then
+				return instance.data:getDuration()
+			end
+		end
+end
+
+function ASource.rewind(instance)
+	if instance.type == 'queue' then
+		-- Rewind the source object.
+		instance.source:seek(0)
+	else
+		-- Use the seek method.
+		if instance.timeStretch >= 0 then
+			instance:seek(0, 'samples')
+		else
+			if instance.type == 'static' then
+				instance:seek(math.max(0,
+					instance.data:getSampleCount() - 1), 'samples')
+			else--if instance.type == 'stream' then
+				instance:seek(math.max(0,
+					instance.data:getDuration() * instance.samplingRate - 1, 'samples')
+			end
+		end
+	end
+	return true
+end
+
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Looping related
+
+function ASource.isLooping(instance)
+	-- Löve also just returns false for queue-type Sources as well.
+	return instance.looping
+end
+
+function ASource.setLooping(instance, state)
+	if instance.type == 'queue' then
+		error("Can't set looping behaviour on queue-type Sources.")
+	end
+
+	if type(state) ~= 'boolean' then
+		error(("1st parameter must be boolean; " ..
+			"got %s instead."):format(type(state)))
+	end
+
+	instance.looping = state
+end
+
+function ASource.getLoopPoints(instance)
+	-- Let's just return the default values even with queue-type Sources.
+	return instance.loopRegionA, instance.loopRegionB
+end
+
+function ASource.setLoopPoints(instance, pointA, pointB)
+	if instance.type == 'queue' then
+		error("Can't set looping region on queue-type Sources.")
+	end
+
+	if not (pointA or pointB) then
+		error("At least one of the endpoints of the looping region must be given.")
+	end
+
+	local limit
+	if instance.type == 'static' then
+		limit = instance.data:getSampleCount()
+	else--if instance.type == 'stream' then
+		limit = instance.data:getDuration() * instance.samplingRate
+	end
+
+	if pointA then
+		if (type(pointA) ~= number or pointA < 0) then
+			error(("1st parameter must be a non-negative number; " ..
+				"got %s of type %s instead."):format(pointA, type(pointA)))
+		end
+
+		if pointA >= limit then
+			error(("1st parameter must be less than the length of the data; " ..
+				"%f > %f."):format(pointA, limit))
+		end
+
+		instance.loopRegionA = pointA
+	end
+	if pointB then
+		if (type(pointB) ~= number or pointB < 0) then
+			error(("2nd parameter must be a non-negative number; " ..
+				"got %s of type %s instead."):format(pointB, type(pointB)))
+		end
+
+		if pointB >= limit then
+			error(("2nd parameter must be less than the length of the data; " ..
+				"%f > %f."):format(pointB, limit))
+		end
+
+		instance.loopRegionB = pointB
+	end
+end
+
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Interpolation related
+
+function ASource.getInterpolationMethod(instance)
+	return ItplMethodList[instance.itplMethodIdx]
+end
+
+function ASource.setInterpolationMethod(instance, method)
+	if not ItplMethodIMap[method] then
+		error(("1st parameter not a supported interpolation method; got %s.\n" ..
+			"Supported: `nearest`, `linear`, `cubic`, `sinc`"):format(tostring(method)))
+	end
+	instance.itplMethodIdx = ItplMethodIMap[method]
+end
+
+
+
+----------------------------------------------------------------------------------------------------
+
+-- TSM related
+
+function ASource.getResamplingRatio(instance)
+	return instance.resampleRatio
+end
+
+function ASource.setResamplingRatio(instance, ratio)
+	if not ratio then
+		error("Missing 1st parameter, must be a number.")
+	end
+	if type(ratio) ~= number then
+		error(("1st parameter must be a number; " ..
+			"got %s instead."):format(tostring(ratio)))
+	end
+
+	instance.resampleRatio = ratio
+
+	calculatePlaybackCoefficients(instance)
+end
+
+function ASource.getTimeStretch(instance)
+	return instance.timeStretch
+end
+
+function ASource.setTimeStretch(instance, ratio)
+	if not ratio then
+		error("Missing 1st parameter, must be a number.")
+	end
+	if type(ratio) ~= number then
+		error(("1st parameter must be a number; " ..
+			"got %s instead."):format(tostring(ratio)))
+	end
+
+	instance.timeStretch = ratio
+
+	calculatePlaybackCoefficients(instance)
+end
+
+function ASource.getPitchShift(instance, unit)
+	unit = unit or 'ratio'
+
+	if not PitchUnit[unit] then
+		error(("1st parameter must be `ratio`, `semitones` or left empty; " ..
+			"got %s instead."):format(tostring(unit)))
+	end
+
+	if unit == 'ratio' then
+		return instance.pitchShift
+	else--if unit == 'semitones' then
+		return instance.pitchShiftSt
+	end
+end
+
+function ASource.setPitchShift(instance, amount, unit)
+	unit = unit or 'ratio'
+
+	if not PitchUnit[unit] then
+		error(("2nd parameter must be `ratio`, `semitones` or left empty; " ..
+			"got %s instead."):format(tostring(unit)))
+	end
+
+	if not amount then
+		error("Missing 1st parameter, must be a number.")
+	end
+	if type(amount) ~= number then
+		error(("1st parameter must be a number; " ..
+			"got %s instead."):format(tostring(amount)))
+	end
+
+	if unit == 'ratio' then
+		if amount <= 0 then
+			error(("1st parameter must be a positive number as a ratio; " ..
+				"got %f instead."):format(amount))
+		end
+		instance.pitchShift   = amount
+		instance.pitchShiftSt = 2^(amount/12)
+	else--if unit == 'semitones' then
+		instance.pitchShift   = (math.log(amount)/math.log(2))*12
+		instance.pitchShiftSt = amount
+	end
+
+	calculatePlaybackCoefficients(instance)
+end
+
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Panning & stereo separation related
+
+function ASource.getPanLaw(instance)
+	-- Returning the custom function one might have defined is not supported. It's "custom".
+	return instance.panLaw
+end
+
+function ASource.setPanLaw(instance, law)
+	if not law then
+		error("Missing 1st parameter, must be `gain`, `power` or a function " ..
+			"with one input and two output parameters: [0,1]->[0,1],[0,1].")
+	end
+
+	if type(law) == 'string' then
+		if not PanLaws[law] then
+			error(("1st parameter as a string must be `gain` or `power`; " ..
+			"got %s instead."):format(law))
+		end
+
+		instance.panLaw     = law
+		instance.panLawFunc = PanLaws[law]
+
+	elseif type(law) == 'function' then
+		-- Minimal testing done on the given function.
+		for i,v in ipairs{0.00, 0.25, 0.33, 0.50, 0.67, 1.00} do
+			local ok, l,r = pcall(law, v)
+			if not ok then
+				error(("The given pan law function is errorenous: %s"):format(l))
+			end
+			if type(l) ~= 'number' or type(r) ~= 'number' then
+				error(("The given pan law function must return two numbers; " ..
+					"got %s and %s instead."):format(type(l), type(r)))
+			end
+			if l < 0.0 or l > 1.0 or r < 0.0 or r > 1.0 then
+				error(("The given pan law function's return values must be in [0.0,1.0]; " ..
+					"got %f and %f instead."):format(l, r))
+			end
+
+			instance.panLaw     = 'custom'
+			instance.panLawFunc = law
+		end
+
+	else
+		error(("1st parameter must be a string or a function; " ..
+			"got %s instead."):format(type(law)))
+	end
+
+	calculatePanningCoefficients(instance)
+end
+
+function ASource.getPanning(instance)
+	return instance.panning
+end
+
+function ASource.setPanning(instance, pan)
+	if not pan then
+		error("Missing 1st parameter, must be a number between 0 and 1 inclusive.")
+	end
+	if type(pan) ~= number then
+		error(("1st parameter must be a number between 0 and 1 inclusive; " ..
+			"got %s instead."):format(tostring(pan)))
+	end
+	if pan < 0 or pan > 1 then
+		error(("1st parameter must be a number between 0 and 1 inclusive; " ..
+			"got %f instead."):format(pan))
+	end
+
+	instance.panning = pan
+
+	calculatePanningCoefficients(instance)
+end
+
+function ASource.getStereoSeparation(instance)
+	return instance.separation
+end
+
+function ASource.setStereoSeparation(instance, sep)
+	if not sep then
+		error("Missing 1st parameter, must be a number between 0 and 2 inclusive.")
+	end
+	if type(sep) ~= number then
+		error(("1st parameter must be a number between 0 and 2 inclusive; " ..
+			"got %s instead."):format(tostring(sep)))
+	end
+	if sep < 0 or sep > 2 then
+		error(("1st parameter must be a number between 0 and 2 inclusive; " ..
+			"got %f instead."):format(sep))
+	end
+
+	instance.separation = sep
+end
+
+
+
+----------------------------------------------------------------------------------------------------
+
+-- Main thread loop
+
+while true do
+	-- Handle messages in inbound queue. Atomic operations in the other threads should guarantee 
+	-- the ordering of inbound messages.
+	local msg = toProc:pop()
+
+	if     msg == 'procThread!' then
+		-- Initialization of this thread successful, next value is the reference to it.
+		procThread = toProc:pop()
+	
+	elseif msg == 'procThread?' then
+		-- This thread already initialized, send back its reference;
+		-- Next value in queue is the channel to the querying thread.
+		local ch = toProc:pop()
+		ch:push(procThread)
+
+	elseif msg == 'pauseall' then
+		-- Support love.audio.pause call variant, with return values.
+		local ch = toProc:pop()
+		local idList = {}
+		for i=1, #ASourceList do
+			if ASourceList[i]:isPlaying() then
+				ASourceList[i]:pause()
+				table.insert(idList, ASourceList[i].id)
+			end
+		end
+		ch:performAtomic(function(ch)
+			ch:push(#idList)
+			if #idList > 0 then
+				for i=1, #idList do
+					ch:push(idList[i])
+				end
+			end
+		end)
+
+	elseif msg == 'stopall' then
+		-- Support love.audio.stop call variant.
+		local ch = toProc:pop()
+		for i=1, #ASourceList do ASourceList[i]:stop() end
+		ch:push(true)
+
+	elseif msg = 'new' then
+		-- Construct a new ASource using parameters popped from the inbound queue,
+		-- then send back the instance's id so a proxy instance can be constructed there.
+		local ch, a, b, c, d, e, id
+		ch = toProc:pop()
+		a  = toProc:pop()
+		b  = toProc:pop()
+		c  = toProc:pop()
+		d  = toProc:pop()
+		e  = toProc:pop()
+
+		id = new(a, b, c, d, e)
+
+		ch:push(id)
+
+	else--if ASource[msg] then -- Although this wouldn't work without a metatable on ASource too.
+		-- Redefined methods and ones we "reverse-inherit" from the internally used QSource.
+		-- <methodName> (above), <ch>, <id>, <paramCount>, [<parameter1>, ..., <parameterN>]
+		local ch = toProc:pop()
+		local id = toProc:pop()
+		local paramCount = toProc:pop()
+		local parameters = {}
+		if paramCount > 0 then
+			for i=1, paramCount do
+				parameters[i] = toProc:pop()
+			end
+		end
+
+		-- Get instance based on id.
+		local instance = ASourceList[ASourceIMap[id]]
+		
+		-- Execute.
+		local result = {instance[msg](instance, unpack(parameters))}
+
+		-- Return results to the querying thread.
+		-- <methodName>, <retvalCount>, [<retval1>, ..., <retvalN>]
+		ch:performAtomic(function(ch)
+			ch:push(#result)
+			if #result > 0 then
+				for i=1, #result do
+					ch:push(result[i])
+				end
+			end
+		end)
+	end
+
+	-- Update active instances.
+	for i=1, #ASourceList do
+		local instance = ASourceList[i]
+		-- While there are empty internal buffers, do work.
+		while instance.source:getFreeBufferCount() > 0 do
+			-- Randomize frame size.
+			instance.curFrameSize = love.math.random(instance.minFrameSize, instance.maxFrameSize)
+			-- Process data.
+			Process[instance.type](instance)
+		end
+	end
 
 	-- Don't hog a core.
 	love.timer.sleep(0.002)
