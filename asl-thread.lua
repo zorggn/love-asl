@@ -177,7 +177,7 @@ Process.static = function(instance)
 					-- Two separate regions between 0 and B, and A and N-1 respectively.
 					local loopRegionSize = (1 + instance.loopRegionB) + (N - instance.loopRegionA)
 
-					-- Testing whether the same method as above works or not...
+					-- FIXME
 					smpOffset = (smpOffset - instance.loopRegionA) %
 						    loopRegionSize + instance.loopRegionA
 					mixSmpOffset = (mixSmpOffset - instance.loopRegionA) %
@@ -470,7 +470,7 @@ Process.static = function(instance)
 				-- Two separate regions between 0 and B, and A and N-1 respectively.
 				local loopRegionSize = (1 + instance.loopRegionB) + (N - instance.loopRegionA)
 
-				-- Testing whether the same method as above works or not...
+				-- FIXME
 				nextPlaybackOffset = (nextPlaybackOffset - instance.loopRegionA) %
 					                      loopRegionSize + instance.loopRegionA
 			end

@@ -159,8 +159,6 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 
 #### Remarks:
 
-- Implement advanced functionality to `stream`-type Sources as well, that use Decoders internally.
-- Maybe Implement tagging support... just to have people use this instead of TESound. (There's Tesselode's Ripple though...)
 - Tagging support: This library should work out-of-the-box with Tesselode's Ripple library, which implements such features, if needed.
 
 ### License
