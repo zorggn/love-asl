@@ -222,10 +222,10 @@ Process.static = function(instance)
 
 				int  = math.floor(smpOffset)
 				frac = smpOffset - int
-				x = instance.data:getSample(math.floor(smpOffset-1) % N)
-				y = instance.data:getSample(math.floor(smpOffset  ) % N)
-				z = instance.data:getSample(math.floor(smpOffset+1) % N)
-				w = instance.data:getSample(math.floor(smpOffset+2) % N)
+				x = instance.data:getSample(math.floor(smpOffset - 1) % N)
+				y = instance.data:getSample(math.floor(smpOffset    ) % N)
+				z = instance.data:getSample(math.floor(smpOffset + 1) % N)
+				w = instance.data:getSample(math.floor(smpOffset + 2) % N)
 				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
 				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
 				Z = -(x * 0.5)             + (z * 0.5)
@@ -234,10 +234,10 @@ Process.static = function(instance)
 
 				int  = math.floor(mixSmpOffset)
 				frac = mixSmpOffset - int
-				x = instance.data:getSample(math.floor(mixSmpOffset-1) % N)
-				y = instance.data:getSample(math.floor(mixSmpOffset  ) % N)
-				z = instance.data:getSample(math.floor(mixSmpOffset+1) % N)
-				w = instance.data:getSample(math.floor(mixSmpOffset+2) % N)
+				x = instance.data:getSample(math.floor(mixSmpOffset - 1) % N)
+				y = instance.data:getSample(math.floor(mixSmpOffset    ) % N)
+				z = instance.data:getSample(math.floor(mixSmpOffset + 1) % N)
+				w = instance.data:getSample(math.floor(mixSmpOffset + 2) % N)
 				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
 				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
 				Z = -(x * 0.5)             + (z * 0.5)
@@ -349,19 +349,19 @@ Process.static = function(instance)
 
 				int  = math.floor(smpOffset)
 				frac = smpOffset - int
-				x = instance.data:getSample(math.floor(smpOffset-1) % N, 1)
-				y = instance.data:getSample(math.floor(smpOffset  ) % N, 1)
-				z = instance.data:getSample(math.floor(smpOffset+1) % N, 1)
-				w = instance.data:getSample(math.floor(smpOffset+2) % N, 1)
+				x = instance.data:getSample(math.floor(smpOffset - 1) % N, 1)
+				y = instance.data:getSample(math.floor(smpOffset    ) % N, 1)
+				z = instance.data:getSample(math.floor(smpOffset + 1) % N, 1)
+				w = instance.data:getSample(math.floor(smpOffset + 2) % N, 1)
 				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
 				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
 				Z = -(x * 0.5)             + (z * 0.5)
 				W =               y
 				AL = X * frac^3 + Y * frac^2 + Z * frac + W
-				x = instance.data:getSample(math.floor(smpOffset-1) % N, 2)
-				y = instance.data:getSample(math.floor(smpOffset  ) % N, 2)
-				z = instance.data:getSample(math.floor(smpOffset+1) % N, 2)
-				w = instance.data:getSample(math.floor(smpOffset+2) % N, 2)
+				x = instance.data:getSample(math.floor(smpOffset - 1) % N, 2)
+				y = instance.data:getSample(math.floor(smpOffset    ) % N, 2)
+				z = instance.data:getSample(math.floor(smpOffset + 1) % N, 2)
+				w = instance.data:getSample(math.floor(smpOffset + 2) % N, 2)
 				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
 				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
 				Z = -(x * 0.5)             + (z * 0.5)
@@ -370,19 +370,19 @@ Process.static = function(instance)
 
 				int  = math.floor(mixSmpOffset)
 				frac = mixSmpOffset - int
-				x = instance.data:getSample(math.floor(mixSmpOffset-1) % N, 1)
-				y = instance.data:getSample(math.floor(mixSmpOffset  ) % N, 1)
-				z = instance.data:getSample(math.floor(mixSmpOffset+1) % N, 1)
-				w = instance.data:getSample(math.floor(mixSmpOffset+2) % N, 1)
+				x = instance.data:getSample(math.floor(mixSmpOffset - 1) % N, 1)
+				y = instance.data:getSample(math.floor(mixSmpOffset    ) % N, 1)
+				z = instance.data:getSample(math.floor(mixSmpOffset + 1) % N, 1)
+				w = instance.data:getSample(math.floor(mixSmpOffset + 2) % N, 1)
 				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
 				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
 				Z = -(x * 0.5)             + (z * 0.5)
 				W =               y
 				BL = X * frac^3 + Y * frac^2 + Z * frac + W
-				x = instance.data:getSample(math.floor(mixSmpOffset-1) % N, 1)
-				y = instance.data:getSample(math.floor(mixSmpOffset  ) % N, 1)
-				z = instance.data:getSample(math.floor(mixSmpOffset+1) % N, 1)
-				w = instance.data:getSample(math.floor(mixSmpOffset+2) % N, 1)
+				x = instance.data:getSample(math.floor(mixSmpOffset - 1) % N, 2)
+				y = instance.data:getSample(math.floor(mixSmpOffset    ) % N, 2)
+				z = instance.data:getSample(math.floor(mixSmpOffset + 1) % N, 2)
+				w = instance.data:getSample(math.floor(mixSmpOffset + 2) % N, 2)
 				X = -(x * 0.5) + (y * 1.5) - (z * 1.5) + w * 0.5
 				Y =  (x      ) - (y * 2.5) + (z * 2.0) - w * 0.5
 				Z = -(x * 0.5)             + (z * 0.5)
@@ -1341,7 +1341,7 @@ function ASource.setLoopPoints(instance, pointA, pointB)
 		error("Can't set looping region on queue-type Sources.")
 	end
 
-	if not (pointA or pointB) then
+	if (pointA == nil) and (pointB == nil) then
 		error("At least one of the endpoints of the looping region must be given.")
 	end
 
@@ -1352,8 +1352,8 @@ function ASource.setLoopPoints(instance, pointA, pointB)
 		limit = instance.data:getDuration() * instance.samplingRate
 	end
 
-	if pointA then
-		if (type(pointA) ~= number or pointA < 0) then
+	if pointA ~= nil then
+		if (type(pointA) ~= 'number' or pointA < 0) then
 			error(("1st parameter must be a non-negative number; " ..
 				"got %s of type %s instead."):format(pointA, type(pointA)))
 		end
@@ -1365,8 +1365,8 @@ function ASource.setLoopPoints(instance, pointA, pointB)
 
 		instance.loopRegionA = pointA
 	end
-	if pointB then
-		if (type(pointB) ~= number or pointB < 0) then
+	if pointB ~= nil then
+		if (type(pointB) ~= 'number' or pointB < 0) then
 			error(("2nd parameter must be a non-negative number; " ..
 				"got %s of type %s instead."):format(pointB, type(pointB)))
 		end
