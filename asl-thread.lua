@@ -285,17 +285,14 @@ Process.static = function(instance)
 				-- Mix the values by simple summing.
 				local L, R = A+B, A+B
 
-				-- Apply stereo separation. (For mono input, this just attenuates between 1.0 & 2.0)
+				-- Apply stereo separation.
 				local M = (L + R) * 0.5
 				local S = (L - R) * 0.5
-				local separation = instance.separation
-				if separation <= 1.0 then
-					L = M + S * separation
-					R = M - S * separation
-				else--if separation <= 2.0 then
-					L = M * (1.0 - (separation - 1.0)) + S * (separation - 1.0)
-					R = M * (1.0 - (separation - 1.0)) - S * (separation - 1.0)
-				end
+				-- New range in [0.0,2.0] which is perfect for the implementation here.
+				local separation = instance.separation + 1.0
+
+				L = M * (2.0 - separation) + S * separation
+				R = M * (2.0 - separation) - S * separation
 
 				-- Apply panning.
 				L = L * instance.panL
@@ -427,14 +424,11 @@ Process.static = function(instance)
 			-- Apply stereo separation.
 			local M = (L + R) * 0.5
 			local S = (L - R) * 0.5
-			local separation = instance.separation
-			if separation <= 1.0 then
-				L = M + S * separation
-				R = M - S * separation
-			else--if separation <= 2.0 then
-				L = M * (1.0 - (separation - 1.0)) + S * (separation - 1.0)
-				R = M * (1.0 - (separation - 1.0)) - S * (separation - 1.0)
-			end
+			-- New range in [0.0,2.0] which is perfect for the implementation here.
+			local separation = instance.separation + 1.0
+			
+			L = M * (2.0 - separation) + S * separation
+			R = M * (2.0 - separation) - S * separation
 
 			-- Apply panning.
 			L = L * instance.panL
@@ -770,8 +764,8 @@ local function new(a,b,c,d,e)
 		calculatePanningCoefficients(instance)
 
 		-- Stereo separation value; operates on input so even with mono output, this has an impact.
-		-- Can go from 0% to 200%, values above 100% mix one channel with the phase inverted.
-		instance.separation = 1.0
+		-- Can go from -100% to 100%, from mid ch. downmix to original to side ch. downmix.
+		instance.separation = 0.0
 	end
 
 	-- Create internal buffer; format adheres to output.
@@ -1568,14 +1562,14 @@ end
 
 function ASource.setStereoSeparation(instance, sep)
 	if not sep then
-		error("Missing 1st parameter, must be a number between 0 and 2 inclusive.")
+		error("Missing 1st parameter, must be a number between -1 and 1 inclusive.")
 	end
-	if type(sep) ~= number then
-		error(("1st parameter must be a number between 0 and 2 inclusive; " ..
+	if type(sep) ~= 'number' then
+		error(("1st parameter must be a number between -1 and 1 inclusive; " ..
 			"got %s instead."):format(tostring(sep)))
 	end
-	if sep < 0 or sep > 2 then
-		error(("1st parameter must be a number between 0 and 2 inclusive; " ..
+	if sep < -1.0 or sep > 1.0 then
+		error(("1st parameter must be a number between -1 and 1 inclusive; " ..
 			"got %f instead."):format(sep))
 	end
 
