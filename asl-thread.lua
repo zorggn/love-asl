@@ -525,6 +525,7 @@ local function calculateFrameCoefficients(instance)
 	local uLimit = instance.maxBufferSize
 	instance.minFrameSize = math.max(lLimit, instance.frameSize - instance.frameVariance)
 	instance.maxFrameSize = math.min(uLimit, instance.frameSize + instance.frameVariance)
+	instance.curFrameSize = love.math.random(instance.minFrameSize, instance.maxFrameSize)
 end
 
 
