@@ -108,10 +108,6 @@ local Process = {}
 
 
 Process.static = function(instance)
-	-- If instance is not in the playing state, return, since we don't want to have silent sources
-	-- occupying any active source slots.
-	if not instance.playing then return end
-
 	-- Localize length of the input SoundData for less table accesses and function calls.
 	local N = instance.data:getSampleCount()
 
@@ -1679,14 +1675,18 @@ while true do
 	end
 
 	-- Update active instances.
-	for i=1, #ASourceList do
+	for i = 1, #ASourceList do
 		local instance = ASourceList[i]
-		-- While there are empty internal buffers, do work.
-		while instance.source:getFreeBufferCount() > 0 do
-			-- Randomize frame size.
-			instance.curFrameSize = love.math.random(instance.minFrameSize, instance.maxFrameSize)
-			-- Process data.
-			Process[instance.type](instance)
+		-- If instance is not in the playing state, then skip queueing more data, since we don't
+		-- want to have silent sources occupying any active source slots.
+		if instance.playing then
+			-- While there are empty internal buffers, do work.
+			while instance.source:getFreeBufferCount() > 0 do
+				-- Randomize frame size.
+				instance.curFrameSize = love.math.random(instance.minFrameSize, instance.maxFrameSize)
+				-- Process data.
+				Process[instance.type](instance)
+			end
 		end
 	end
 
