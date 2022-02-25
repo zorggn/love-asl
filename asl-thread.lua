@@ -589,7 +589,11 @@ local function new(a,b,c,d,e)
 				"got %f instead."):format(c))
 		end
 		sourcetype = 'queue'
-	elseif a.type and a:type() ~= 'SoundData' then
+
+	elseif 	           type(a) == 'string'      or
+		   a.type and a:type() == 'File'        or
+		   a.type and a:type() == 'DroppedFile' or
+		   a.type and a:type() == 'FileData'    then
 		-- Static/stream types (excluding static ones from a SoundData object).
 		if type(b) ~= 'string' then
 			error(("ASource constructor: 2nd parameter must be a string; " ..
@@ -600,11 +604,11 @@ local function new(a,b,c,d,e)
 				"got %s instead."):format(tostring(b)))
 		end
 		sourcetype = b
-	elseif             type(a) == 'string'   or
-		   a.type and a:type() == 'File'     or
-		   a.type and a:type() == 'FileData'
-	then
-		-- No special handling here.
+
+	elseif a.type and a:type() ~= 'SoundData' then
+		-- Can only be static type.
+		sourcetype = 'static'
+
 	else
 		error(("ASource constructor: 1st parameter was %s; must be one of the following:\n" ..
 			"string, File, FileData, Decoder, SoundData, number."):format(tostring(a)))
@@ -632,8 +636,9 @@ local function new(a,b,c,d,e)
 		instance.OALBufferCount = d
 	else
 		if sourcetype == 'static' then
-			if              type(a) == 'string'   or
-				a.type and a:type() == 'File'     or
+			if              type(a) == 'string'      or
+				a.type and a:type() == 'File'        or
+				a.type and a:type() == 'DroppedFile' or
 				a.type and a:type() == 'FileData'
 			then
 				-- Load from given path, file object reference, or memory-mapped file data object.
@@ -650,8 +655,9 @@ local function new(a,b,c,d,e)
 				instance.data = a
 			end
 		else--if sourcetype == 'stream' then
-			if              type(a) == 'string'   or
-				a.type and a:type() == 'File'     or
+			if              type(a) == 'string'      or
+				a.type and a:type() == 'File'        or
+				a.type and a:type() == 'DroppedFile' or
 				a.type and a:type() == 'FileData'
 			then
 				-- Load from given path, file object reference, or memory-mapped file data object.
@@ -671,15 +677,26 @@ local function new(a,b,c,d,e)
 
 		-- Check for optional OAL buffer count parameter; nil for default value otherwise.
 		instance.OALBufferCount = nil
-		if              type(a) == 'string'   or
-			a.type and a:type() == 'File'     or
-			a.type and a:type() == 'FileData' or
+		if              type(a) == 'string'      or
+			a.type and a:type() == 'File'        or
+			a.type and a:type() == 'DroppedFile' or
+			a.type and a:type() == 'FileData'    or
 			a.type and a:type() == 'Decoder'
 		then
-			instance.OALBufferCount = type(c) == 'number' and c
+			if type(c) == 'number' then
+				instance.OALBufferCount = c
+			elseif type(c) ~= 'nil' then
+				error(("3rd, optional parameter expected to be a number between 1 and 64; " ..
+					"got %s instead."):format(type(c)))
+			end
 		elseif a.type and a:type() == 'SoundData'
 		then
-			instance.OALBufferCount = type(b) == 'number' and b
+			if type(b) == 'number' then
+				instance.OALBufferCount = b
+			elseif type(b) ~= 'nil' then
+				error(("2nd, optional parameter expected to be a number between 1 and 64; " ..
+					"got %s instead."):format(type(b)))
+			end
 		end
 	end
 
@@ -688,15 +705,26 @@ local function new(a,b,c,d,e)
 	if sourcetype == 'queue' then
 		instance.outputAurality = type(e) == 'number' and e
 	else
-		if              type(a) == 'string'   or
-			a.type and a:type() == 'File'     or
-			a.type and a:type() == 'FileData' or
+		if              type(a) == 'string'      or
+			a.type and a:type() == 'File'        or
+			a.type and a:type() == 'DroppedFile' or
+			a.type and a:type() == 'FileData'    or
 			a.type and a:type() == 'Decoder'
 		then
-			instance.outputAurality = type(d) == 'number' and d
+			if type(d) == 'number' then
+				instance.outputAurality = d
+			elseif type(d) ~= 'nil' then
+				error(("4th, optional parameter expected to be a number, either 1 or 2; " ..
+					"got %s instead."):format(type(d)))
+			end
 		elseif a.type and a:type() == 'SoundData'
 		then
-			instance.outputAurality = type(c) == 'number' and c
+			if type(c) == 'number' then
+				instance.outputAurality = c
+			elseif type(c) ~= 'nil' then
+				error(("3rd, optional parameter expected to be a number, either 1 or 2; " ..
+					"got %s instead."):format(type(c)))
+			end
 		end
 	end
 
