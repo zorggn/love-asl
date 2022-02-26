@@ -594,7 +594,8 @@ local function new(a,b,c,d,e)
 	elseif 	           type(a) == 'string'      or
 		   a.type and a:type() == 'File'        or
 		   a.type and a:type() == 'DroppedFile' or
-		   a.type and a:type() == 'FileData'    then
+		   a.type and a:type() == 'FileData'    or
+		   a.type and a:type() == 'Decoder'     then
 		-- Static/stream types (excluding static ones from a SoundData object).
 		if type(b) ~= 'string' then
 			error(("ASource constructor: 2nd parameter must be a string; " ..
