@@ -149,6 +149,12 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 
 	- The library currently only supports creating "static" source types, and will error otherwise.
 
+#### V4.1 (2022.02.26)
+
+	- Fixed constructor bugs.
+	- Fixed bugs relating to methods that the library doesn't override.
+	- Fixed sinc interpolator ringing bug.
+
 #### V?.? () - TODO
 
 	- Add missing versions to :queue. (rest of the parameters, that is)
