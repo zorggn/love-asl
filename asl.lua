@@ -164,6 +164,11 @@ end
 
 
 
+-- Declare mt as a local before the transfer function. Both reference each other, so
+local mt
+
+
+
 -- The function handling passing queries to, and receiving data from the processing thread.
 local transfer = function(instance, ...)
 	local arg = {...}
@@ -225,7 +230,7 @@ end
 
 
 -- Route all method calls to the transfer function.
-local mt = {__index = function(instance, m)
+mt = {__index = function(instance, m)
 	if method[m] then
 		-- Hack: Add the current method's name to the proxy instance so we can refer to that in
 		--       the transfer function... also due to how metamethod indexing works, we actually
