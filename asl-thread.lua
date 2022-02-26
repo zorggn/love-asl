@@ -525,7 +525,6 @@ local function calculateFrameCoefficients(instance)
 	local uLimit = instance.maxBufferSize
 	instance.minFrameSize = math.max(lLimit, instance.frameSize - instance.frameVariance)
 	instance.maxFrameSize = math.min(uLimit, instance.frameSize + instance.frameVariance)
-	instance.curFrameSize = love.math.random(instance.minFrameSize, instance.maxFrameSize)
 end
 
 
@@ -734,8 +733,9 @@ local function new(a,b,c,d,e)
 		-- The pre-calculated min, max and currently applied frame size, for performance reasons.
 		instance.minFrameSize  = nil
 		instance.maxFrameSize  = nil
-		instance.curFrameSize  = nil
 		calculateFrameCoefficients(instance)
+		-- Calculate an initial value for the to-be used actual frame size.
+		instance.curFrameSize  =  love.math.random(instance.minFrameSize, instance.maxFrameSize)
 
 		-- The playback state; stopped by default.
 		instance.playing = false
@@ -1792,7 +1792,10 @@ while true do
 			-- While there are empty internal buffers, do work.
 			while instance.source:getFreeBufferCount() > 0 do
 				-- Randomize frame size.
-				instance.curFrameSize = love.math.random(instance.minFrameSize, instance.maxFrameSize)
+				instance.curFrameSize = love.math.random(
+					instance.minFrameSize,
+					instance.maxFrameSize
+				)
 				-- Process data.
 				Process[instance.type](instance)
 			end
