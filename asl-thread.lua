@@ -1345,6 +1345,9 @@ function ASource.setLooping(instance, state)
 	end
 
 	instance.looping = state
+
+	-- Setting loop state resets initial loop state.
+	instance.loopRegionEntered = false
 end
 
 function ASource.getLoopPoints(instance)
@@ -1394,6 +1397,9 @@ function ASource.setLoopPoints(instance, pointA, pointB)
 
 		instance.loopRegionB = pointB
 	end
+
+	-- Setting loop state resets initial loop state.
+	instance.loopRegionEntered = false
 end
 
 
