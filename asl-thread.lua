@@ -542,17 +542,7 @@ local ASource = {}
 
 -- Metatable
 
-local mtASource = {__index = function(instance, method)
-	-- Call our own methods.
-	if ASource[method] then
-		return ASource[method]
-	else
-		-- Call original methods we didn't re-implement.
-		if instance.source[method] then
-			return instance.source[method]
-		end
-	end
-end}
+local mtASource = {__index = ASource}
 
 
 
@@ -1612,6 +1602,93 @@ end
 
 ----------------------------------------------------------------------------------------------------
 
+-- Methods that aren't modified; instead of overcomplicating metatable stuff, just have them here.
+
+function ASource.getFreeBufferCount(instance, ...)
+	return instance.source:getFreeBufferCount(...)
+end
+
+function ASource.getEffect(instance, ...)
+	return instance.source:getEffect(...)
+end
+function ASource.setEffect(instance, ...)
+	return instance.source:setEffect(...)
+end
+function ASource.getFilter(instance, ...)
+	return instance.source:getFilter(...)
+end
+function ASource.setFilter(instance, ...)
+	return instance.source:setFilter(...)
+end
+function ASource.getActiveEffects(instance, ...)
+	return instance.source:getActiveEffects(...)
+end
+
+function ASource.getAirAbsorption(instance, ...)
+	return instance.source:getAirAbsorption(...)
+end
+function ASource.setAirAbsorption(instance, ...)
+	return instance.source:setAirAbsorption(...)
+end
+function ASource.getAttenuationDistances(instance, ...)
+	return instance.source:getAttenuationDistances(...)
+end
+function ASource.setAttenuationDistances(instance, ...)
+	return instance.source:setAttenuationDistances(...)
+end
+function ASource.getCone(instance, ...)
+	return instance.source:getCone(...)
+end
+function ASource.setCone(instance, ...)
+	return instance.source:setCone(...)
+end
+function ASource.getDirection(instance, ...)
+	return instance.source:getDirection(...)
+end
+function ASource.setDirection(instance, ...)
+	return instance.source:setDirection(...)
+end
+function ASource.getPosition(instance, ...)
+	return instance.source:getPosition(...)
+end
+function ASource.setPosition(instance, ...)
+	return instance.source:setPosition(...)
+end
+function ASource.getRolloff(instance, ...)
+	return instance.source:getRolloff(...)
+end
+function ASource.setRolloff(instance, ...)
+	return instance.source:setRolloff(...)
+end
+function ASource.getVelocity(instance, ...)
+	return instance.source:getVelocity(...)
+end
+function ASource.setVelocity(instance, ...)
+	return instance.source:setVelocity(...)
+end
+function ASource.isRelative(instance, ...)
+	return instance.source:isRelative(...)
+end
+function ASource.setRelative(instance, ...)
+	return instance.source:setRelative(...)
+end
+function ASource.getVolumeLimits(instance, ...)
+	return instance.source:getVolumeLimits(...)
+end
+function ASource.setVolumeLimits(instance, ...)
+	return instance.source:setVolumeLimits(...)
+end
+
+function ASource.getVolume(instance, ...)
+	return instance.source:getVolume(...)
+end
+function ASource.setVolume(instance, ...)
+	return instance.source:setVolume(...)
+end
+
+
+----------------------------------------------------------------------------------------------------
+
 -- Main thread loop
 
 while true do
@@ -1669,7 +1746,7 @@ while true do
 
 		ch:push(id)
 
-	elseif type(msg) == 'string' then -- Can't use ASource[msg] due to missing vanilla methods...
+	elseif ASource[msg] then
 		-- Redefined methods and ones we "reverse-inherit" from the internally used QSource.
 		-- <methodName> (above), <ch>, <id>, <paramCount>, [<parameter1>, ..., <parameterN>]
 		local ch = toProc:pop()
