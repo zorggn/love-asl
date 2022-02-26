@@ -607,7 +607,7 @@ local function new(a,b,c,d,e)
 		end
 		sourcetype = b
 
-	elseif a.type and a:type() ~= 'SoundData' then
+	elseif a.type and a:type() == 'SoundData' then
 		-- Can only be static type.
 		sourcetype = 'static'
 
