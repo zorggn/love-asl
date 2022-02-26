@@ -245,14 +245,14 @@ Process.static = function(instance)
 				B = X * frac^3 + Y * frac^2 + Z * frac + W
 
 			else--if itplMethodIdx == 3 then
-				-- 32-tap / sinc (lanczos)
-				local taps  = 32
+				-- 16-tap / sinc (lanczos)
+				local taps  = 16
 				local offset, result
 				
 				result = 0.0
 				offset = smpOffset % N
-				for t = -(taps/2), (taps/2) do
-					local i = math.floor(smpOffset + t + 0.5) % N
+				for t = -taps+1, taps do
+					local i = math.floor(smpOffset + t) % N
 					result = result + instance.data:getSample(i) *
 					         lanczos_window(offset - i, taps)
 				end
@@ -260,8 +260,8 @@ Process.static = function(instance)
 
 				result = 0.0
 				offset = mixSmpOffset % N
-				for t = -(taps/2), (taps/2) do
-					local i = math.floor(mixSmpOffset + t + 0.5) % N
+				for t = -taps+1, taps do
+					local i = math.floor(mixSmpOffset + t) % N
 					result = result + instance.data:getSample(i) *
 					         lanczos_window(offset - i, taps)
 				end
@@ -387,14 +387,14 @@ Process.static = function(instance)
 				BR = X * frac^3 + Y * frac^2 + Z * frac + W
 
 			else--if itplMethodIdx == 3 then
-				-- 32-tap / sinc (lanczos)
-				local taps  = 32
+				-- 16-tap / sinc (lanczos)
+				local taps  = 16
 				local offset, resultL, resultR
 				
 				resultL, resultR = 0.0, 0.0
 				offset = smpOffset % N
-				for t = -(taps/2), (taps/2) do
-					local i = math.floor(smpOffset + t + 0.5) % N
+				for t = -taps+1, taps do
+					local i = math.floor(smpOffset + t) % N
 					resultL = resultL + instance.data:getSample(i, 1) *
 					          lanczos_window(offset - i, taps)
 					resultR = resultR + instance.data:getSample(i, 2) *
@@ -404,8 +404,8 @@ Process.static = function(instance)
 
 				resultL, resultR = 0.0, 0.0
 				offset = mixSmpOffset % N
-				for t = -(taps/2), (taps/2) do
-					local i = math.floor(mixSmpOffset + t + 0.5) % N
+				for t = -taps+1, taps do
+					local i = math.floor(mixSmpOffset + t) % N
 					resultL = resultL + instance.data:getSample(i, 1) *
 					          lanczos_window(offset - i, taps)
 					resultR = resultR + instance.data:getSample(i, 2) *
