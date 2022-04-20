@@ -64,6 +64,7 @@ local VarianceUnit  = {['milliseconds'] = true, ['samples']   = true, ['percenta
 local math = math
 math.sgn   = function(x) return x<0.0 and -1.0 or 1.0 end
 math.clamp = function(x,min,max) return math.max(math.min(x, max), min) end
+local invSqrtTwo = 1.0 / math.sqrt(2.0)
 
 -- Panning laws included by default.
 local PanLaws = {
@@ -85,6 +86,11 @@ local function lanczos_window(x,a)
 		return 0 -- brickwall edges outside the region we're using.
 	end
 end
+
+-- TSM buffer mixing method list and reverse-lookup table.
+-- Technically these are also interpolation methods, but 2 input ones only, and an automatic mode.
+local MixMethodList = {[0] = 'auto', 'linear', 'cosine'}
+local MixMethodIMap = {}; for i=0,#MixMethodList do MixMethodIMap[MixMethodList[i]] = i end
 
 
 
@@ -186,6 +192,21 @@ Process.static = function(instance)
 			end
 		end
 
+		-- Currently, outerOffset can't change inside this function, so we hoist automatic TSM
+		-- buffer mixing method selection out of the inner loops.
+		local mixMethod = instance.mixMethodIdx
+		-- Automatic mode: if outerOffset is effectively 0.0, use linear, else use cosine.
+		if mixMethod == 0 then
+			-- Epsilon chosen so that for most sensible values of the TSM parameters, zero will
+			-- result in the right combinations, meaning we're just doing resampling.
+			-- 2^-32 is good enough for more than 8 decimal digits of precision.
+			if math.abs(instance.outerOffset) < 2^-32 then
+				mixMethod = 1
+			else
+				mixMethod = 2
+			end
+		end
+
 		-- Unroll loops based on input channel count.
 		if instance.channelCount == 1 then
 			local A, B = 0.0, 0.0
@@ -268,9 +289,16 @@ Process.static = function(instance)
 				B = result
 			end
 
-			-- Apply attenuation to result in a linear mix through the buffer.
-			A = A * (1.0 - mix)
-			B = B *        mix
+			-- Apply attenuation to result in a linear or cosine mix through the buffer.
+			if mixMethod == 1 then
+				A = A * (1.0 - mix)
+				B = B *        mix
+			else--if mixMethod == 2 then
+				A = A * math.sqrt(1.0 - mix)
+				B = B * math.sqrt(      mix)
+				A = A * invSqrtTwo
+				B = B * invSqrtTwo
+			end
 
 			if instance.outputAurality == 1 then
 
@@ -414,9 +442,16 @@ Process.static = function(instance)
 				BL, BR = resultL, resultR
 			end
 
-			-- Apply attenuation to result in a linear mix through the buffer.
-			AL, AR = AL * (1.0 - mix), AR * (1.0 - mix)
-			BL, BR = BL * (      mix), BR * (      mix)
+			-- Apply attenuation to result in a linear or cosine mix through the buffer.
+			if mixMethod == 1 then
+				AL, AR = AL * (1.0 - mix), AR * (1.0 - mix)
+				BL, BR = BL * (      mix), BR * (      mix)
+			else--if mixMethod == 2 then
+				AL, AR = AL * math.sqrt(1.0 - mix), AR * math.sqrt(1.0 - mix)
+				BL, BR = BL * math.sqrt(      mix), BR * math.sqrt(      mix)
+				AL, AR = AL * invSqrtTwo, AR * invSqrtTwo
+				BL, BR = BL * invSqrtTwo, BR * invSqrtTwo
+			end
 
 			-- Mix the values by simple summing.
 			local L, R = AL+BL, AR+BR
@@ -758,6 +793,14 @@ local function new(a,b,c,d,e)
 		-- The indice of the interpolation method used when rendering data into the buffer.
 		-- Default is 1 for linear.
 		instance.itplMethodIdx = 1
+
+		-- The indice of the TSM mixing method used. Default is 0 for automatic mode.
+		-- Reasoning: For smaller buffer sizes, cosine interpolation does introduce some modulation
+		-- noise due to nonlinearity, however, for all situations where pitch shift and time stretch
+		-- are not related (i.e. it's just a change in resampling), cosine gets rid of audible
+		-- amplitude fluctuations, which may be better; auto mode sets the method used automatically
+		-- based on the above.
+		instance.mixMethodIdx = 0
 
 		-- Resampling ratio; the simple way of combined speed and pitch modification.
 		instance.resampleRatio = 1.0
@@ -1424,7 +1467,19 @@ end
 
 ----------------------------------------------------------------------------------------------------
 
--- TSM related
+-- TSM related (TSM buffer mixing also uses interpolation)
+
+function ASource.getMixMethod(instance)
+	return MixMethodList[instance.mixMethodIdx]
+end
+
+function ASource.setMixMethod(instance, method)
+	if not MixMethodIMap[method] then
+		error(("1st parameter not a supported mixing method; got %s.\n" ..
+			"Supported: `auto`, `linear`, `cosine`."):format(tostring(method)))
+	end
+	instance.mixMethodIdx = MixMethodIMap[method]
+end
 
 function ASource.getResamplingRatio(instance)
 	return instance.resampleRatio

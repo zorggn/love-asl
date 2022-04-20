@@ -155,6 +155,10 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 	- Fixed bugs relating to methods that the library doesn't override.
 	- Fixed sinc interpolator ringing bug.
 
+#### V
+	
+	- Added getMixMethod/setMixMethod to select how TSM frames are mixed together, either through linear or cosine interpolation (to preserve power); default setting is automatic method selection whether TSM is active, or if just resampling, even at +/- 100%.
+
 #### V?.? () - TODO
 
 	- Add missing versions to :queue. (rest of the parameters, that is)

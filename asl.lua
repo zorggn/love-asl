@@ -115,6 +115,8 @@ do
 
 	method.getInterpolationMethod = true
 	method.setInterpolationMethod = true
+	method.getMixMethod = true
+	method.setMixMethod = true
 
 	method.getResamplingRatio = true
 	method.setResamplingRatio = true
