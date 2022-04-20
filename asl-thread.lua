@@ -115,43 +115,56 @@ local Process = {}
 
 Process.static = function(instance)
 	-- Localize length of the input SoundData for less table accesses and function calls.
+	-- This is only used for wrapping in the sampling functions (getSample).
 	local N = instance.data:getSampleCount()
 
 	-- The current frame offset.
 	local frameOffset    = instance.playbackOffset
 	-- Calculate the offset of the frame we want to mix with the current one.
 	local mixFrameOffset = instance.curFrameSize * instance.outerOffset
+	-- The above two don't need to be wrapped due to them only being used in one location only.
 
 	-- Copy samplepoints to buffer.
 	for i = 0, instance.curFrameSize - 1 do
 
-		-- Normalized weight applied to the two samplepoints we're mixing each time.
+		-- Normalized linear weight applied to the two samplepoints we're mixing each time.
 		local mix = i / (instance.curFrameSize - 1)
 
 		-- Current fractional samplepoint offset into the input SoundData.
-		local smpOffset    = frameOffset + i * instance.innerOffset
+		local smpOffset    = frameOffset --+ i * instance.innerOffset
 		-- Calculate the offset of the samplepoint we want to mix with the current one.
-		local mixSmpOffset = smpOffset + mixFrameOffset
+		local mixSmpOffset = smpOffset --+ mixFrameOffset
+		-- The above two also don't need to be wrapped.
 
 		-- If we left the SoundData's region, and looping is off...
 		if not instance.looping then
+
+			smpOffset    = frameOffset + i * instance.innerOffset
+			mixSmpOffset = smpOffset + mixFrameOffset
+
 			if smpOffset < 0 or smpOffset >= N then
+
 				-- Fill the rest of the buffer with silence,
 				for j = i + 1, instance.curFrameSize - 1 do
 					for ch=1, instance.channelCount do
 						instance.buffer:setSample(j, ch, 0.0)
 					end
 				end
+
 				-- Stop the instance.
 				instance:stop()
+
 				-- Break out early of the for loop.
 				break
 			end
+
 		else--if instance.looping then
+
 			local disjunct = instance.loopRegionB < instance.loopRegionA
 
 			-- Initial playback or seeking was performed.
 			if not instance.loopRegionEntered then
+
 				-- Check if we're inside any loop regions now, if so, set the above parameter.
 				if not disjunct then
 					if smpOffset >= instance.loopRegionA and smpOffset <= instance.loopRegionB then
@@ -159,6 +172,7 @@ Process.static = function(instance)
 					end
 
 				else--if disjunct then
+					--if smpOffset <= instance.loopRegionB or smpOffset >= instance.loopRegionA then
 					if (smpOffset >=   0 and smpOffset <= instance.loopRegionB) or
 					   (smpOffset <= N-1 and smpOffset >= instance.loopRegionA) then
 						instance.loopRegionEntered = true
@@ -168,29 +182,41 @@ Process.static = function(instance)
 
 			-- If we're in the loop, make sure we don't leave it with neither of the two pointers.
 			if instance.loopRegionEntered then
-				-- Adjust both offsets to adhere to loop region bounds as well as SoundData length.
-				if not disjunct then
-					-- One contiguous region between A and B.
-					local loopRegionSize = instance.loopRegionB - instance.loopRegionA + 1
 
-					-- The same method works regardless of position or direction of playback.
-					smpOffset = (smpOffset - instance.loopRegionA) %
-						    loopRegionSize + instance.loopRegionA
-					mixSmpOffset = (mixSmpOffset - instance.loopRegionA) %
-						          loopRegionSize + instance.loopRegionA
+				-- Adjust both offsets to adhere to loop region bounds as well as SoundData length.
+				local loopRegionSize
+				if not disjunct then
+
+					-- One contiguous region between A and B.
+					loopRegionSize = instance.loopRegionB - instance.loopRegionA + 1
 
 				else--if disjunct then
-					-- Two separate regions between 0 and B, and A and N-1 respectively.
-					local loopRegionSize = (1 + instance.loopRegionB) + (N - instance.loopRegionA)
 
-					-- FIXME
-					smpOffset = (smpOffset - instance.loopRegionA) %
-						    loopRegionSize + instance.loopRegionA
-					mixSmpOffset = (mixSmpOffset - instance.loopRegionA) %
-						          loopRegionSize + instance.loopRegionA
+					-- Two separate regions between 0 and B, and A and N-1 respectively.
+					loopRegionSize = (1 + instance.loopRegionB) + (N - instance.loopRegionA)
+
 				end
+
+				-- One algorithm to rule them all
+				-- ...mathed out by Vörnicus, thank you once again~
+				
+				smpOffset = (((smpOffset - instance.loopRegionA) % N
+				          + i            * instance.innerOffset) % loopRegionSize
+				          +                instance.loopRegionA) % N
+
+				mixSmpOffset = (((smpOffset    - instance.loopRegionA) % N 
+				             +                         mixFrameOffset) % loopRegionSize
+				             +                   instance.loopRegionA) % N
+
+			else
+
+				smpOffset    = frameOffset + i * instance.innerOffset
+				mixSmpOffset = smpOffset + mixFrameOffset
+
 			end
 		end
+
+		if i == 0 then print(smpOffset, mixSmpOffset) end
 
 		-- Currently, outerOffset can't change inside this function, so we hoist automatic TSM
 		-- buffer mixing method selection out of the inner loops.
@@ -483,32 +509,35 @@ Process.static = function(instance)
 	end
 
 	-- Calculate next frame offset.
-	local nextPlaybackOffset = instance.playbackOffset +
-		instance.curFrameSize * instance.timeStretch * math.abs(instance.resampleRatio)
+	local nextPlaybackOffset = instance.playbackOffset + instance.curFrameSize
+		                     * instance.timeStretch    * math.abs(instance.resampleRatio)
 
 	-- Apply loop region bounding, if applicable.
 	if instance.looping then
+
 		local disjunct = instance.loopRegionB < instance.loopRegionA
 
 		-- If we're in the loop, make sure we don't leave it with neither of the two pointers.
 		if instance.loopRegionEntered then
+
 			-- Adjust both offsets to adhere to loop region bounds as well as SoundData length.
+			local loopRegionSize
 			if not disjunct then
 				-- One contiguous region between A and B.
-				local loopRegionSize = instance.loopRegionB - instance.loopRegionA + 1
-
-				-- The same method works regardless of position or direction of playback.
-				nextPlaybackOffset = (nextPlaybackOffset - instance.loopRegionA) %
-					                      loopRegionSize + instance.loopRegionA
+				loopRegionSize = instance.loopRegionB - instance.loopRegionA + 1
 
 			else--if disjunct then
 				-- Two separate regions between 0 and B, and A and N-1 respectively.
-				local loopRegionSize = (1 + instance.loopRegionB) + (N - instance.loopRegionA)
-
-				-- FIXME
-				nextPlaybackOffset = (nextPlaybackOffset - instance.loopRegionA) %
-					                      loopRegionSize + instance.loopRegionA
+				loopRegionSize = (1 + instance.loopRegionB) + (N - instance.loopRegionA)
 			end
+
+			-- One algorithm to rule them all
+			-- ...mathed out by Vörnicus, thank you once again~
+
+			nextPlaybackOffset = (((instance.playbackOffset - instance.loopRegionA) % N
+			                   + instance.curFrameSize      * instance.timeStretch
+			                   * math.abs(instance.resampleRatio))             % loopRegionSize
+					           +                         instance.loopRegionA) % N
 		end
 	end
 

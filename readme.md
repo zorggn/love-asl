@@ -155,11 +155,17 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 	- Fixed bugs relating to methods that the library doesn't override.
 	- Fixed sinc interpolator ringing bug.
 
-#### V
-	
+#### V4.2 (22022.04.20)
+
 	- Added getMixMethod/setMixMethod to select how TSM frames are mixed together, either through linear or cosine interpolation (to preserve power); default setting is automatic method selection whether TSM is active, or if just resampling, even at +/- 100%.
 
+	- Fixed disjunct loop region behaviour.
+
+	- Made sure loop regions are not forcefully "jumped into" while the playhead is outside said regions; looping is only really happening once we enter the region proper, during playback; "jumping out" of the region is also possible, resetting the looping behaviour like if the playhead was never in the region in the first place.
+
 #### V?.? () - TODO
+
+	- Made TSM frame size be independent from the chosen buffer size, meaning that frame size changes won't change how much time delay there is.
 
 	- Add missing versions to :queue. (rest of the parameters, that is)
 	- Add all advanced functionality to `stream` type ASources.
