@@ -62,7 +62,7 @@ local VarianceUnit  = {['milliseconds'] = true, ['samples']   = true, ['percenta
 
 -- Monkeypatching into the math library (of this thread only).
 local math = math
-math.sgn   = function(x) return x<0 and -1.0 or 1.0 end
+math.sgn   = function(x) return x<0.0 and -1.0 or 1.0 end
 math.clamp = function(x,min,max) return math.max(math.min(x, max), min) end
 
 -- Panning laws included by default.
@@ -71,7 +71,7 @@ local PanLaws = {
 	power = function(pan) return math.cos(math.pi / 2.0) * pan, math.sin(math.pi / 2.0) * pan end
 }
 
--- Interpolation method list and reverse-lookup tables.
+-- Interpolation method list and reverse-lookup table.
 local ItplMethodList  = {[0] = 'nearest', 'linear', 'cubic', 'sinc'}
 local ItplMethodIMap = {}; for i=0,#ItplMethodList do ItplMethodIMap[ItplMethodList[i]] = i end
 
@@ -752,7 +752,7 @@ local function new(a,b,c,d,e)
 		instance.loopRegionB = 0
 		-- Helper variable to guarantee playback not being initially locked between the loop region.
 		-- False by default, stopping and redefining the loop region resets the field to false.
-		-- If no special region is defined, then this turns true instantly when starting playback.
+		-- If no loop region is defined, then this turns true instantly when starting playback.
 		instance.loopRegionEntered = false
 
 		-- The indice of the interpolation method used when rendering data into the buffer.
@@ -1415,7 +1415,7 @@ end
 function ASource.setInterpolationMethod(instance, method)
 	if not ItplMethodIMap[method] then
 		error(("1st parameter not a supported interpolation method; got %s.\n" ..
-			"Supported: `nearest`, `linear`, `cubic`, `sinc`"):format(tostring(method)))
+			"Supported: `nearest`, `linear`, `cubic`, `sinc`."):format(tostring(method)))
 	end
 	instance.itplMethodIdx = ItplMethodIMap[method]
 end

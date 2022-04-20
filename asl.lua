@@ -270,7 +270,9 @@ local new = function(a,b,c,d,e)
 	while not asource.id do
 		asource.id = toHere:pop()
 		local threadError = procThread:getError()
-		if threadError then error(threadError) end
+		if threadError then
+			error(threadError)
+		end
 	end
 	
 	--------------
