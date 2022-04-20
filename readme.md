@@ -73,6 +73,9 @@ The two laws are constant-gain/amplitude and constant-power/loudness laws, the f
 - `Source:getBufferVariance` added, with parameter `unit`, in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default.
 - `Source:setBufferVariance` added, with parameters `amount` and `unit`; in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default. Randomly varies the length of the buffer within its defined limits.
 
+- `Source:getMixMethod` added.
+- `Source:setMixMethod` added, with parameters `auto`, `linear` or `cosine`, with the first being default. It's best to leave this alone for most use-cases.
+
 #### Modifications
 - `Source:queue` may now be defined as a "pull-style" callback; if it isn't, it will work as the vanilla "push-style" method. (Note: queue type source support not yet implemented.)
 
