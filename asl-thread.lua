@@ -65,6 +65,7 @@ local math = math
 math.sgn   = function(x) return x<0.0 and -1.0 or 1.0 end
 math.clamp = function(x,min,max) return math.max(math.min(x, max), min) end
 local invSqrtTwo = 1.0 / math.sqrt(2.0)
+local halfpi     = math.pi / 2.0
 
 -- Panning laws included by default.
 local PanLaws = {
@@ -89,7 +90,7 @@ end
 
 -- TSM buffer mixing method list and reverse-lookup table.
 -- Technically these are also interpolation methods, but 2 input ones only, and an automatic mode.
-local MixMethodList = {[0] = 'auto', 'linear', 'cosine'}
+local MixMethodList = {[0] = 'auto', 'linear', 'sqroot', 'cosine', 'noise'}
 local MixMethodIMap = {}; for i=0,#MixMethodList do MixMethodIMap[MixMethodList[i]] = i end
 
 
@@ -231,7 +232,7 @@ Process.static = function(instance)
 			if math.abs(instance.outerOffset) < 2^-32 then
 				mixMethod = 1
 			else
-				mixMethod = 2
+				mixMethod = 3
 			end
 		end
 
@@ -321,11 +322,20 @@ Process.static = function(instance)
 			if mixMethod == 1 then
 				A = A * (1.0 - mix)
 				B = B *        mix
-			else--if mixMethod == 2 then
+			elseif mixMethod == 2 then
 				A = A * math.sqrt(1.0 - mix)
 				B = B * math.sqrt(      mix)
 				A = A * invSqrtTwo
 				B = B * invSqrtTwo
+			elseif mixMethod == 3 then
+				A = A * math.cos(       mix  * halfpi)
+				B = B * math.cos((1.0 - mix) * halfpi)
+				A = A * invSqrtTwo
+				B = B * invSqrtTwo
+			else--if mixMethod == 4 then
+				local y = love.math.random()
+				A = A *        y
+				B = B * (1.0 - y)
 			end
 
 			if instance.outputAurality == 1 then
@@ -474,11 +484,22 @@ Process.static = function(instance)
 			if mixMethod == 1 then
 				AL, AR = AL * (1.0 - mix), AR * (1.0 - mix)
 				BL, BR = BL * (      mix), BR * (      mix)
-			else--if mixMethod == 2 then
+			elseif mixMethod == 2 then
 				AL, AR = AL * math.sqrt(1.0 - mix), AR * math.sqrt(1.0 - mix)
 				BL, BR = BL * math.sqrt(      mix), BR * math.sqrt(      mix)
 				AL, AR = AL * invSqrtTwo, AR * invSqrtTwo
 				BL, BR = BL * invSqrtTwo, BR * invSqrtTwo
+			elseif mixMethod == 3 then
+				AL, AR = AL * math.cos(       mix  * halfpi), AR * math.cos(       mix  * halfpi)
+				BL, BR = BL * math.cos((1.0 - mix) * halfpi), BR * math.cos((1.0 - mix) * halfpi)
+				AL, AR = AL * invSqrtTwo, AR * invSqrtTwo
+				BL, BR = BL * invSqrtTwo, BR * invSqrtTwo
+			else--if mixMethod == 4 then
+				local y = love.math.random()
+				AL = AL *        y
+				AR = AR *        y
+				BL = BL * (1.0 - y)
+				BR = BR * (1.0 - y)
 			end
 
 			-- Mix the values by simple summing.
@@ -1507,7 +1528,7 @@ end
 function ASource.setMixMethod(instance, method)
 	if not MixMethodIMap[method] then
 		error(("1st parameter not a supported mixing method; got %s.\n" ..
-			"Supported: `auto`, `linear`, `cosine`."):format(tostring(method)))
+			"Supported: `auto`, `linear`, `sqroot`, 'cosine', 'noise'."):format(tostring(method)))
 	end
 	instance.mixMethodIdx = MixMethodIMap[method]
 end
