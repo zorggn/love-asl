@@ -289,9 +289,14 @@ local oldLAPlay, oldLAPause, oldLAStop = love.audio.play, love.audio.pause, love
 
 function love.audio.play(...)
 	local temp = select(1, ...)
-	if type(temp) ~= 'table' then temp = {...} end
+	if type(temp) == 'table' and temp.typeOf then temp = {...} end
 	for i,v in ipairs(temp) do
-		if v:typeOf('ASource') then temp[i] = v:getInternalSource() end
+		if v:typeOf('ASource') then
+			v:play()
+			temp[i] = v:getInternalSource()
+			temp[i]:stop() -- Sync test... doesn't seem to work.
+			v.playbackOffset = 0.0 -- Sync test #2
+		end
 	end
 	return oldLAPlay(temp) -- Returns true if all Sources succeeded in being started/resumed.
 end
@@ -338,9 +343,12 @@ function love.audio.pause(...)
 	else
 		-- Only pause select ASources.
 		local temp = select(1, ...)
-		if type(temp) ~= 'table' then temp = {...} end
+		if type(temp) == 'table' and temp.typeOf then temp = {...} end
 		for i,v in ipairs(temp) do
-			if v:typeOf('ASource') then temp[i] = v:getInternalSource() end
+			if v:typeOf('ASource') then
+				v:pause()
+				temp[i] = v:getInternalSource()
+			end
 		end
 		return oldLAPause(temp)
 	end
@@ -364,9 +372,12 @@ function love.audio.stop(...)
 	else
 		-- Only stop select ASources.
 		local temp = select(1, ...)
-		if type(temp) ~= 'table' then temp = {...} end
+		if type(temp) == 'table' and temp.typeOf then temp = {...} end
 		for i,v in ipairs(temp) do
-			if v:typeOf('ASource') then temp[i] = v:getInternalSource() end
+			if v:typeOf('ASource') then
+				v:stop()
+				temp[i] = v:getInternalSource()
+			end
 		end
 		return oldLAStop(temp)
 	end
