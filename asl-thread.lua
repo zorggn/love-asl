@@ -129,6 +129,8 @@ Process.static = function(instance)
 
 		-- Normalized linear weight applied to the two samplepoints we're mixing each time.
 		local mix = i / (instance.curFrameSize - 1)
+		-- Fix potential NaN issue if curFrameSize is 1.
+		mix = mix == mix and mix or 0
 
 		-- Current fractional samplepoint offset into the input SoundData.
 		local smpOffset    = frameOffset --+ i * instance.innerOffset
