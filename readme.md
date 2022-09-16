@@ -158,13 +158,19 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 	- Fixed bugs relating to methods that the library doesn't override.
 	- Fixed sinc interpolator ringing bug.
 
-#### V4.2 (22022.04.20)
+#### V4.2 (2022.04.20)
 
 	- Added getMixMethod/setMixMethod to select how TSM frames are mixed together, either through linear or cosine interpolation (to preserve power); default setting is automatic method selection whether TSM is active, or if just resampling, even at +/- 100%.
 
 	- Fixed disjunct loop region behaviour.
 
 	- Made sure loop regions are not forcefully "jumped into" while the playhead is outside said regions; looping is only really happening once we enter the region proper, during playback; "jumping out" of the region is also possible, resetting the looping behaviour like if the playhead was never in the region in the first place.
+
+#### V4.3 (2022.09.17)
+
+	- Fixed monkeypatched love.audio.play/pause/stop not working on ASources.
+
+	- Renamed "cosine" mixing method to square root, and added an actual cosine-based one, along with a white-noise based one for no real reason other than it being interesting.
 
 #### V?.? () - TODO
 
