@@ -203,13 +203,13 @@ Process.static = function(instance)
 				-- One algorithm to rule them all
 				-- ...mathed out by Vörnicus, thank you once again~
 				
-				smpOffset = (((smpOffset - instance.loopRegionA) % N
-				          + i            * instance.innerOffset) % loopRegionSize
-				          +                instance.loopRegionA) % N
+				smpOffset    = (((smpOffset - instance.loopRegionA) % N
+				             + i            * instance.innerOffset) % loopRegionSize
+				             +                instance.loopRegionA) % N
 
-				mixSmpOffset = (((smpOffset    - instance.loopRegionA) % N 
-				             +                         mixFrameOffset) % loopRegionSize
-				             +                   instance.loopRegionA) % N
+				mixSmpOffset = (((smpOffset - instance.loopRegionA) % N 
+				             +                      mixFrameOffset) % loopRegionSize
+				             +                instance.loopRegionA) % N
 
 			else
 
@@ -557,10 +557,10 @@ Process.static = function(instance)
 			-- One algorithm to rule them all
 			-- ...mathed out by Vörnicus, thank you once again~
 
-			nextPlaybackOffset = (((instance.playbackOffset - instance.loopRegionA) % N
-			                   + instance.curFrameSize      * instance.timeStretch
-			                   * math.abs(instance.resampleRatio))             % loopRegionSize
-					           +                         instance.loopRegionA) % N
+			nextPlaybackOffset = (
+				((instance.playbackOffset - instance.loopRegionA) % N
+				+ instance.curFrameSize   * instance.timeStretch  * math.abs(instance.resampleRatio))
+				% loopRegionSize          + instance.loopRegionA) % N
 		end
 	end
 
