@@ -147,7 +147,7 @@ Process.static = function(instance)
 			if smpOffset < 0 or smpOffset >= N then
 
 				-- Fill the rest of the buffer with silence,
-				for j = i + 1, instance.curFrameSize - 1 do
+				for j = i, instance.curFrameSize - 1 do
 					for ch=1, instance.channelCount do
 						instance.buffer:setSample(j, ch, 0.0)
 					end
