@@ -42,7 +42,7 @@ require('love.math')
 -- The thread itself, needed so we can have one unique processing thread.
 local procThread
 
--- Shared communication channel to this thread.
+-- Shared inbound communication channel to this thread.
 local toProc = ...
 
 -- List of ASource objects; keys are contiguous integers, however, they aren't unique indices.
@@ -191,11 +191,13 @@ Process.static = function(instance)
 				if not disjunct then
 
 					-- One contiguous region between A and B.
+					-- Minimal region size is 1 samplepoints.
 					loopRegionSize = instance.loopRegionB - instance.loopRegionA + 1
 
 				else--if disjunct then
 
 					-- Two separate regions between 0 and B, and A and N-1 respectively.
+					-- Minimal region size is 2 samplepoints. (if it was 1, it would be conjunct...)
 					loopRegionSize = (1 + instance.loopRegionB) + (N - instance.loopRegionA)
 
 				end
@@ -219,12 +221,10 @@ Process.static = function(instance)
 			end
 		end
 
-		if i == 0 then print(smpOffset, mixSmpOffset) end
-
 		-- Currently, outerOffset can't change inside this function, so we hoist automatic TSM
-		-- buffer mixing method selection out of the inner loops.
+		-- buffer mixing method selection out of the inner loops to here.
 		local mixMethod = instance.mixMethodIdx
-		-- Automatic mode: if outerOffset is effectively 0.0, use linear, else use cosine.
+		-- Automatic mode: if outerOffset is effectively 0.0, use linear, otherwise use cosine.
 		if mixMethod == 0 then
 			-- Epsilon chosen so that for most sensible values of the TSM parameters, zero will
 			-- result in the right combinations, meaning we're just doing resampling.
@@ -1715,7 +1715,7 @@ end
 
 ----------------------------------------------------------------------------------------------------
 
--- Methods that aren't modified; instead of overcomplicating metatable stuff, just have them here.
+-- Methods that aren't modified; instead of overcomplicated metatable stuff, just have them here.
 
 function ASource.getFreeBufferCount(instance, ...)
 	return instance.source:getFreeBufferCount(...)
