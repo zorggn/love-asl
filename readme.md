@@ -64,7 +64,7 @@ For those that want to, they can always add the function themselves into löve's
 - `Source:setPanning` added, with parameter `pan`; 0.0 is full left, 1.0 is full right, 0.5 is centered; the curve is defined by the specific panning law selected. Default is `0.5`.
 
 - `Source:getPanLaw` added.
-- `Source:setPanLaw` added, with parameter `law`; which can be one of the following strings: `gain, power` or a custom function taking a number within the range [0,1] as input, and returning two numbers in the domain [0,1] that scale the left and right channels respectively. Default is `gain`.
+- `Source:setPanLaw` added, with parameter `law`; which can be one of the following strings: `gain`, `power` or a custom function taking a number within the range [0,1] as input, and returning two numbers in the domain [0,1] that scale the left and right channels respectively. Default is `gain`.
 The two laws are constant-gain/amplitude and constant-power/loudness laws, the first attentuates the volume at the center by -6dB (50%), the second only by -3dB (1/sqrt(2)).
 
 - `Source:getStereoSeparation` added.
@@ -74,12 +74,12 @@ The two laws are constant-gain/amplitude and constant-power/loudness laws, the f
 - `Source:setBufferVariance` added, with parameters `amount` and `unit`; in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default. Randomly varies the length of the buffer within its defined limits.
 
 - `Source:getMixMethod` added.
-- `Source:setMixMethod` added, with parameters `auto`, `linear` or `cosine`, with the first being default. It's best to leave this alone for most use-cases.
+- `Source:setMixMethod` added, with parameters `auto`, `linear`, `sqroot`, `cosine` and `noise`, with the first being default. It's best to leave this alone for most use-cases.
 
 #### Modifications
 - `Source:queue` may now be defined as a "pull-style" callback; if it isn't, it will work as the vanilla "push-style" method. (Note: queue type source support not yet implemented.)
 
-- `Object:release` modified to release all extra internals of the new Objects; must be called explicitly if one doesn't want dead objects cluttering up the processing thread.
+- `Object:release` modified to release all extra internals of the new Objects; **must be called explicitly if one doesn't want dead objects cluttering up the processing thread.**
 - `Object:type` modified to return the string `ASource`.
 - `Object:typeOf` modified to also return true for `ASource` as a specialization of the `Source` type.
 
@@ -93,7 +93,7 @@ The two laws are constant-gain/amplitude and constant-power/loudness laws, the f
 
 where buffercount and aurality are optional parameters.
 
-The buffercount parameter sets how many OpenAL-side buffers get made for the internal queueable source; less means less delay.
+The buffercount parameter sets how many OpenAL-side buffers get made for the internal queueable source; less means less delay, but playback may underrun (it'll start to crackle).
 
 The aurality parameter forces the internal QSource and buffers to be either mono or stereo, regardless of the channel count of the input itself; this means that ostensibly stereo data can also be used with 3D spatialization.
 
@@ -168,7 +168,7 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 
 #### V4.3 (2022.09.17)
 
-	- Fixed monkeypatched love.audio.play/pause/stop not working on ASources.
+	- Fixed monkeypatched love.audio.play/pause/stop not working on ASources. (love.audio.play does not sync up multiple ASources regarding playback though.)
 
 	- Renamed "cosine" mixing method to square root, and added an actual cosine-based one, along with a white-noise based one for no real reason other than it being interesting.
 
