@@ -262,7 +262,7 @@ local new = function(a,b,c,d,e)
 	local asource = {}
 
 	-- Add internal method name stack, because metatable calls are apparently instantaneous with
-	-- chained functions; `AS:set(AS:get()` runs in the order [set, get], so it calls get twice.
+	-- chained functions; `AS:set(AS:get())` runs in the order [set, get], so it calls get twice.
 	asource.callStack = {}
 
 	-- Make this work more or less like a regular source.
