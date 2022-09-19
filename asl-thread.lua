@@ -225,12 +225,13 @@ Process.static = function(instance)
 		-- buffer mixing method selection out of the inner loops to here.
 		local mixMethod = instance.mixMethodIdx
 		-- Automatic mode: if outerOffset is effectively 0.0, use linear, otherwise use cosine.
+		-- Note: Linear mode is inadequate, we still need to adjust the volume to be lower.
 		if mixMethod == 0 then
 			-- Epsilon chosen so that for most sensible values of the TSM parameters, zero will
 			-- result in the right combinations, meaning we're just doing resampling.
 			-- 2^-32 is good enough for more than 8 decimal digits of precision.
 			if math.abs(instance.outerOffset) < 2^-32 then
-				mixMethod = 1
+				mixMethod = 0
 			else
 				mixMethod = 3
 			end
@@ -319,7 +320,12 @@ Process.static = function(instance)
 			end
 
 			-- Apply attenuation to result in a linear or cosine mix through the buffer.
-			if mixMethod == 1 then
+			if mixMethod == 0 then
+				A = A * (1.0 - mix)
+				B = B *        mix
+				A = A * invSqrtTwo
+				B = B * invSqrtTwo
+			elseif mixMethod == 1 then
 				A = A * (1.0 - mix)
 				B = B *        mix
 			elseif mixMethod == 2 then
@@ -481,7 +487,12 @@ Process.static = function(instance)
 			end
 
 			-- Apply attenuation to result in a linear or cosine mix through the buffer.
-			if mixMethod == 1 then
+			if mixMethod == 0 then
+				AL, AR = AL * (1.0 - mix), AR * (1.0 - mix)
+				BL, BR = BL * (      mix), BR * (      mix)
+				AL, AR = AL * invSqrtTwo, AR * invSqrtTwo
+				BL, BR = BL * invSqrtTwo, BR * invSqrtTwo
+			elseif mixMethod == 1 then
 				AL, AR = AL * (1.0 - mix), AR * (1.0 - mix)
 				BL, BR = BL * (      mix), BR * (      mix)
 			elseif mixMethod == 2 then
