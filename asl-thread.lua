@@ -974,7 +974,14 @@ function ASource.clone(instance)
 	)
 
 	-- Internal QSource object: Clone it.
-	clone.source = instance.source:clone()
+	-- LÖVE BUG: Cloning a queueable source doesn't give back a functioning one; temporary fix.
+	--clone.source = instance.source:clone()
+	clone.source = love.audio.newQueueableSource(
+		clone.samplingRate,
+		clone.bitDepth,
+		clone.outputAurality,
+		clone.OALBufferCount
+	)
 
 	-- Make sure all internals are configured correctly.
 	calculateTSMCoefficients(clone)
