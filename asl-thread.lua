@@ -1914,8 +1914,9 @@ while true do
 		-- If instance is not in the playing state, then skip queueing more data, since we don't
 		-- want to have silent sources occupying any active source slots.
 		if instance.playing then
-			-- While there are empty internal buffers, do work.
-			while instance.source:getFreeBufferCount() > 0 do
+			-- If there is at least one empty internal buffer, do work.
+			-- Cheap bugfix for now, refactoring will deal with this later.
+			if instance.source:getFreeBufferCount() > 0 then
 				-- Randomize frame size.
 				instance.curFrameSize = love.math.random(
 					instance.minFrameSize,
