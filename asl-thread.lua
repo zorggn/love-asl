@@ -974,7 +974,7 @@ function ASource.clone(instance)
 	)
 
 	-- Internal QSource object: Clone it.
-	-- LÖVE BUG: Cloning a queueable source doesn't give back a functioning one; temporary fix.
+	-- BUG: Cloning a queueable source doesn't give back a functioning one; temporary fix.
 	--clone.source = instance.source:clone()
 	clone.source = love.audio.newQueueableSource(
 		clone.samplingRate,
