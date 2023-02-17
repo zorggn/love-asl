@@ -67,11 +67,14 @@ math.clamp = function(x,min,max) return math.max(math.min(x, max), min) end
 local invSqrtTwo = 1.0 / math.sqrt(2.0)
 local halfpi     = math.pi / 2.0
 
--- Panning laws included by default.
-local PanLaws = {
-	gain  = function(pan) return                    1.0  - pan,                           pan end,
-	power = function(pan) return math.cos(math.pi / 2.0) * pan, math.sin(math.pi / 2.0) * pan end
+-- Default panning laws and reverse-lookup table.
+local PanLawFunc = {
+	[0] = function(pan) return                    1.0  - pan,                           pan end,
+	[1] = function(pan) return math.cos(math.pi / 2.0 * pan), math.sin(math.pi / 2.0 * pan) end
+	-- [2] is locally stored as functions in each instance separately.
 }
+local PanLawList = {[0] = 'gain', 'power'}
+local PanLawIMap = {}; for i=0,#PanLawList do PanLawIMap[PanLawList[i]] = i end
 
 -- Interpolation method list and reverse-lookup table.
 local ItplMethodList  = {[0] = 'nearest', 'linear', 'cubic', 'sinc'}
@@ -884,8 +887,8 @@ local function new(a,b,c,d,e)
 		calculateTSMCoefficients(instance)
 
 		-- The panning law string and the function in use.
-		instance.panLaw     = 'gain'
-		instance.panLawFunc = PanLaws[instance.panLaw]
+		instance.panLaw     = 0
+		instance.panLawFunc = PanLawFunc[instance.panLaw]
 
 		-- Panning value; operates on input so even with mono output, this has an impact.
 		-- Can go from 0.0 to 1.0; default is 0.5 for centered.
@@ -1658,7 +1661,10 @@ end
 
 function ASource.getPanLaw(instance)
 	-- Returning the custom function one might have defined is not supported. It's "custom".
-	return instance.panLaw
+	if instance.panLaw == 2 then
+		return 'custom'
+	end
+	return PanLawList[instance.panLaw]
 end
 
 function ASource.setPanLaw(instance, law)
@@ -1668,13 +1674,13 @@ function ASource.setPanLaw(instance, law)
 	end
 
 	if type(law) == 'string' then
-		if not PanLaws[law] then
+		if not PanLawIMap[law] then
 			error(("1st parameter as a string must be `gain` or `power`; " ..
 			"got %s instead."):format(law))
 		end
 
-		instance.panLaw     = law
-		instance.panLawFunc = PanLaws[law]
+		instance.panLaw     = PanLawIMap[law]
+		instance.panLawFunc = PanLawFunc[PanLawIMap[law]]
 
 	elseif type(law) == 'function' then
 		-- Minimal testing done on the given function.
@@ -1692,7 +1698,7 @@ function ASource.setPanLaw(instance, law)
 					"got %f and %f instead."):format(l, r))
 			end
 
-			instance.panLaw     = 'custom'
+			instance.panLaw     = PanLawIMap['custom']
 			instance.panLawFunc = law
 		end
 
@@ -1905,6 +1911,13 @@ while true do
 			for i=1, paramCount do
 				parameters[i] = toProc:pop()
 			end
+		end
+
+		-- setPanLaw is the only method that potentially supports as parameter a function,
+		-- we need to parse that here so it's not a dumped string anymore.
+		if msg == 'setPanLaw' and not PanLawIMap[parameters[1]] then
+			local success, _ = loadstring(parameters[1])
+			if success then parameters[1] = success end
 		end
 
 		-- Get instance based on id.

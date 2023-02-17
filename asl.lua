@@ -193,7 +193,12 @@ local transfer = function(instance, ...)
 		-- Push parameters, if they exist.
 		if #arg>0 then
 			for i=1, #arg do
-				ch:push(arg[i])
+				if methodName == 'setPanLaw' and type(arg[i]) == 'function' then
+					-- Can't send functions to other threads through channels directly.
+					ch:push(string.dump(arg[i]))
+				else
+					ch:push(arg[i])
+				end
 			end
 		end
 	end)

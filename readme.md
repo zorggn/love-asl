@@ -179,6 +179,8 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 
 	- Added setBufferVarianceDistribution and getBufferVarianceDistribution methods to change how the buffer's length gets varied each time one is filled; can be either uniform or normal distribution (with a constant deviation).
 
+	- Changed panning law internals a bit, including bugfixes; now also stored as an enumeration, like everything else. (The custom one is still stored as a per-instance function as well, if defined.)
+
 	- Made TSM frame size be independent from the chosen buffer size, meaning that frame size changes won't change how much time delay there is.
 
 	- Add missing versions to :queue. (rest of the parameters, that is)
