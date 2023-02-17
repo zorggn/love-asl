@@ -30,3 +30,9 @@ run.bat
 run_debug.bat
 temp.lua
 test*
+*.mp3
+*.wav
+*.ogg
+*.love
+*.jpg
+*.png
