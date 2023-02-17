@@ -73,6 +73,9 @@ The two laws are constant-gain/amplitude and constant-power/loudness laws, the f
 - `Source:getBufferVariance` added, with parameter `unit`, in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default.
 - `Source:setBufferVariance` added, with parameters `amount` and `unit`; in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default. Randomly varies the length of the buffer within its defined limits.
 
+- `Source:getBufferVarianceDistribution` added.
+- `Source:setBufferVarianceDistribution` added, with parameters `uniform` and `normal`, with the latter being default.
+
 - `Source:getMixMethod` added.
 - `Source:setMixMethod` added, with parameters `auto`, `linear`, `sqroot`, `cosine` and `noise`, with the first being default. It's best to leave this alone for most use-cases.
 
@@ -173,6 +176,8 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 	- Renamed "cosine" mixing method to square root, and added an actual cosine-based one, along with a white-noise based one for no real reason other than it being interesting.
 
 #### V?.? () - TODO
+
+	- Added setBufferVarianceDistribution and getBufferVarianceDistribution methods to change how the buffer's length gets varied each time one is filled; can be either uniform or normal distribution (with a constant deviation).
 
 	- Made TSM frame size be independent from the chosen buffer size, meaning that frame size changes won't change how much time delay there is.
 

@@ -93,6 +93,9 @@ end
 local MixMethodList = {[0] = 'auto', 'linear', 'sqroot', 'cosine', 'noise'}
 local MixMethodIMap = {}; for i=0,#MixMethodList do MixMethodIMap[MixMethodList[i]] = i end
 
+-- Buffer variance distribution method list and reverse-lookup table.
+local VarDistType = {[0] = 'uniform', 'normal'}
+local VarDistIMap = {}; for i=0,#VarDistType do VarDistIMap[VarDistType[i]] = i end
 
 
 ----------------------------------------------------------------------------------------------------
@@ -828,12 +831,14 @@ local function new(a,b,c,d,e)
 		instance.frameSize     =  2048
 		-- The amount of frame size variance centered on the above value, in smp-s.
 		instance.frameVariance =     0
+		-- The random distribution to use for varying the buffer's size.
+		instance.frameVarianceDistributionIdx = 1
 		-- The pre-calculated min, max and currently applied frame size, for performance reasons.
 		instance.minFrameSize  = nil
 		instance.maxFrameSize  = nil
 		calculateFrameCoefficients(instance)
 		-- Calculate an initial value for the to-be used actual frame size.
-		instance.curFrameSize  =  love.math.random(instance.minFrameSize, instance.maxFrameSize)
+		instance.curFrameSize  =  instance.frameSize
 
 		-- The playback state; stopped by default.
 		instance.playing = false
@@ -1217,6 +1222,18 @@ function ASource.setBufferVariance(instance, variance, unit)
 	end
 
 	calculateFrameCoefficients(instance)
+end
+
+function ASource.getBufferVarianceDistribution(instance)
+	return VarDistType[instance.frameVarianceDistributionIdx]
+end
+
+function ASource.setBufferVarianceDistribution(instance, distribution)
+	if not VarDistIMap[distribution] then
+		error(("1st parameter is not a supported buffer variance distribution; got %s.\n" ..
+			"Supported: `uniform`, `normal`"):format(tostring(distribution)))
+	end
+	instance.frameVarianceDistributionIdx = VarDistIMap[distribution]
 end
 
 
@@ -1918,10 +1935,17 @@ while true do
 			-- Cheap bugfix for now, refactoring will deal with this later.
 			if instance.source:getFreeBufferCount() > 0 then
 				-- Randomize frame size.
-				instance.curFrameSize = love.math.random(
-					instance.minFrameSize,
-					instance.maxFrameSize
-				)
+				if instance.frameVarianceDistributionIdx == 0 then
+					instance.curFrameSize = love.math.random(
+						instance.minFrameSize,
+						instance.maxFrameSize)
+				else
+					local avgFrameSize    = (instance.minFrameSize + instance.maxFrameSize) / 2.0
+					local normal          = love.math.randomNormal(avgFrameSize / 2.0, avgFrameSize)
+					instance.curFrameSize = math.floor(math.clamp(
+						normal, instance.minFrameSize, instance.maxFrameSize))
+				end
+
 				-- Process data.
 				Process[instance.type](instance)
 			end

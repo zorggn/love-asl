@@ -95,6 +95,8 @@ do
 	method.setBufferSize = true
 	method.getBufferVariance = true
 	method.setBufferVariance = true
+	method.getBufferVarianceDistribution = true
+	method.setBufferVarianceDistribution = true
 
 	method.isPlaying = true
 	method.play = true
