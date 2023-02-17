@@ -345,9 +345,11 @@ Process.static = function(instance)
 				A = A * invSqrtTwo
 				B = B * invSqrtTwo
 			else--if mixMethod == 4 then
-				local y = love.math.random()
-				A = A *        y
-				B = B * (1.0 - y)
+				local y = love.math.randomNormal(0.1, 0.5)
+				A = A *        math.clamp(mix+y,0,1)
+				B = B * (1.0 - math.clamp(mix+y,0,1))
+				A = A * invSqrtTwo
+				B = B * invSqrtTwo
 			end
 
 			if instance.outputAurality == 1 then
@@ -512,11 +514,13 @@ Process.static = function(instance)
 				AL, AR = AL * invSqrtTwo, AR * invSqrtTwo
 				BL, BR = BL * invSqrtTwo, BR * invSqrtTwo
 			else--if mixMethod == 4 then
-				local y = love.math.random()
-				AL = AL *        y
-				AR = AR *        y
-				BL = BL * (1.0 - y)
-				BR = BR * (1.0 - y)
+				local y = love.math.randomNormal(0.1,0.5)
+				AL = AL *        math.clamp(y,0,1)
+				AR = AR *        math.clamp(y,0,1)
+				BL = BL * (1.0 - math.clamp(y,0,1))
+				BR = BR * (1.0 - math.clamp(y,0,1))
+				AL, AR = AL * invSqrtTwo, AR * invSqrtTwo
+				BL, BR = BL * invSqrtTwo, BR * invSqrtTwo
 			end
 
 			-- Mix the values by simple summing.
