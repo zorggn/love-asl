@@ -1941,12 +1941,15 @@ while true do
 	-- Update active instances.
 	for i = 1, #ASourceList do
 		local instance = ASourceList[i]
+
 		-- If instance is not in the playing state, then skip queueing more data, since we don't
 		-- want to have silent sources occupying any active source slots.
 		if instance.playing then
+
 			-- If there is at least one empty internal buffer, do work.
 			-- Cheap bugfix for now, refactoring will deal with this later.
 			if instance.source:getFreeBufferCount() > 0 then
+
 				-- Randomize frame size.
 				if instance.frameVarianceDistributionIdx == 0 then
 					instance.curFrameSize = love.math.random(
