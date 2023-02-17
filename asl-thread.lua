@@ -93,7 +93,7 @@ end
 
 -- TSM buffer mixing method list and reverse-lookup table.
 -- Technically these are also interpolation methods, but 2 input ones only, and an automatic mode.
-local MixMethodList = {[0] = 'auto', 'linear', 'sqroot', 'cosine', 'noise'}
+local MixMethodList = {[0] = 'auto', 'linear', 'sqroot', 'cosine'}
 local MixMethodIMap = {}; for i=0,#MixMethodList do MixMethodIMap[MixMethodList[i]] = i end
 
 -- Buffer variance distribution method list and reverse-lookup table.
@@ -339,15 +339,9 @@ Process.static = function(instance)
 				B = B * math.sqrt(      mix)
 				A = A * invSqrtTwo
 				B = B * invSqrtTwo
-			elseif mixMethod == 3 then
+			else--if mixMethod == 3 then
 				A = A * math.cos(       mix  * halfpi)
 				B = B * math.cos((1.0 - mix) * halfpi)
-				A = A * invSqrtTwo
-				B = B * invSqrtTwo
-			else--if mixMethod == 4 then
-				local y = love.math.randomNormal(0.1, 0.5)
-				A = A *        math.clamp(mix+y,0,1)
-				B = B * (1.0 - math.clamp(mix+y,0,1))
 				A = A * invSqrtTwo
 				B = B * invSqrtTwo
 			end
@@ -508,17 +502,9 @@ Process.static = function(instance)
 				BL, BR = BL * math.sqrt(      mix), BR * math.sqrt(      mix)
 				AL, AR = AL * invSqrtTwo, AR * invSqrtTwo
 				BL, BR = BL * invSqrtTwo, BR * invSqrtTwo
-			elseif mixMethod == 3 then
+			else--if mixMethod == 3 then
 				AL, AR = AL * math.cos(       mix  * halfpi), AR * math.cos(       mix  * halfpi)
 				BL, BR = BL * math.cos((1.0 - mix) * halfpi), BR * math.cos((1.0 - mix) * halfpi)
-				AL, AR = AL * invSqrtTwo, AR * invSqrtTwo
-				BL, BR = BL * invSqrtTwo, BR * invSqrtTwo
-			else--if mixMethod == 4 then
-				local y = love.math.randomNormal(0.1,0.5)
-				AL = AL *        math.clamp(y,0,1)
-				AR = AR *        math.clamp(y,0,1)
-				BL = BL * (1.0 - math.clamp(y,0,1))
-				BR = BR * (1.0 - math.clamp(y,0,1))
 				AL, AR = AL * invSqrtTwo, AR * invSqrtTwo
 				BL, BR = BL * invSqrtTwo, BR * invSqrtTwo
 			end
@@ -1570,7 +1556,7 @@ end
 function ASource.setMixMethod(instance, method)
 	if not MixMethodIMap[method] then
 		error(("1st parameter not a supported mixing method; got %s.\n" ..
-			"Supported: `auto`, `linear`, `sqroot`, 'cosine', 'noise'."):format(tostring(method)))
+			"Supported: `auto`, `linear`, `sqroot`, 'cosine'."):format(tostring(method)))
 	end
 	instance.mixMethodIdx = MixMethodIMap[method]
 end
