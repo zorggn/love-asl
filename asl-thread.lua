@@ -52,7 +52,7 @@ local ASourceIMap = {} -- number:number
 
 
 
--- Enumerations.
+-- Enumerations (Not stored in instances, no need for reverse lookup tables.)
 local PitchUnit     = {['ratio']        = true, ['semitones'] = true}
 local TimeUnit      = {['seconds']      = true, ['samples']   = true}
 local BufferUnit    = {['milliseconds'] = true, ['samples']   = true}
