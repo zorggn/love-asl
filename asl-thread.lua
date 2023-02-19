@@ -55,7 +55,7 @@ local ASourceIMap = {} -- number:number
 -- Enumerations (Not stored in instances, no need for reverse lookup tables.)
 local PitchUnit     = {['ratio']        = true, ['semitones'] = true}
 local TimeUnit      = {['seconds']      = true, ['samples']   = true}
-local BufferUnit    = {['milliseconds'] = true, ['samples']   = true}
+local BufferUnit    = {['milliseconds'] = true, ['samples']   = true} -- Also used for Frame size.
 local VarianceUnit  = {['milliseconds'] = true, ['samples']   = true, ['percentage'] = true}
 
 
@@ -101,6 +101,38 @@ local VarDistType = {[0] = 'uniform', 'normal'}
 local VarDistIMap = {}; for i=0,#VarDistType do VarDistIMap[VarDistType[i]] = i end
 
 
+
+----------------------------------------------------------------------------------------------------
+
+-- Helper functions that need to be called to recalculate multiple internals from varied methods.
+
+-- Makes pitch shifting and time stretching possible.
+local function calculateTSMCoefficients(instance)
+	-- Set offsets
+	instance.innerOffset = instance.resampleRatio 
+	                     * instance.pitchShift    * math.sgn(instance.timeStretch)
+	instance.outerOffset = instance.resampleRatio *
+	                     ( instance.timeStretch   * math.sgn(instance.resampleRatio)
+	                     - instance.pitchShift    * math.sgn(instance.timeStretch))
+	-- Me avoiding responsibilities :c
+	instance.frameAdvance = instance.timeStretch  * math.abs(instance.resampleRatio)
+end
+
+-- Pre-calculates how stereo sources should have their panning set.
+local function calculatePanningCoefficients(instance)
+	instance.panL, instance.panR = instance.panLawFunc(instance.panning)
+end
+
+-- Pre-calculates values needed for uniformly random buffer resizing.
+local function calculateFrameCoefficients(instance)
+	local lLimit = math.floor( 1 * 0.001 * instance.samplingRate + 0.5) --  1 ms
+	local uLimit = math.floor(10         * instance.samplingRate + 0.5) -- 10 s
+	instance.minFrameSize = math.max(lLimit, instance.frameSize - instance.frameVariance)
+	instance.maxFrameSize = math.min(uLimit, instance.frameSize + instance.frameVariance)
+end
+
+
+
 ----------------------------------------------------------------------------------------------------
 
 -- TODO: Placeholder until we implement the full push-style version with all processing included.
@@ -125,14 +157,17 @@ Process.static = function(instance)
 	-- This is only used for wrapping in the sampling functions (getSample).
 	local N = instance.data:getSampleCount()
 
-	-- The current frame offset.
-	local frameOffset    = instance.playbackOffset
-	-- Calculate the offset of the frame we want to mix with the current one.
-	local mixFrameOffset = instance.curFrameSize * instance.outerOffset
-	-- The above two don't need to be wrapped due to them only being used in one location only.
-
 	-- Copy samplepoints to buffer.
-	for i = 0, instance.curFrameSize - 1 do
+	for b = 0, instance.bufferSize - 1 do
+
+		-- The current frame offset.
+		local frameOffset    = instance.playbackOffset
+		-- Calculate the offset of the frame we want to mix with the current one.
+		local mixFrameOffset = instance.curFrameSize * instance.outerOffset
+		-- The above two don't need to be wrapped due to them only being used in one location only.
+
+		-- TSM frames aren't aligned to the buffer's size, so we keep track of that separately.
+		local i = instance._frameIndex
 
 		-- Normalized linear weight applied to the two samplepoints we're mixing each time.
 		local mix = i / (instance.curFrameSize - 1)
@@ -154,7 +189,7 @@ Process.static = function(instance)
 			if smpOffset < 0 or smpOffset >= N then
 
 				-- Fill the rest of the buffer with silence,
-				for j = i, instance.curFrameSize - 1 do
+				for j = b, instance.bufferSize - 1 do
 					for ch=1, instance.channelCount do
 						instance.buffer:setSample(j, ch, 0.0)
 					end
@@ -162,6 +197,9 @@ Process.static = function(instance)
 
 				-- Stop the instance.
 				instance:stop()
+
+				-- Reset TSM frame index
+				instance._frameIndex = 0
 
 				-- Break out early of the for loop.
 				break
@@ -352,7 +390,7 @@ Process.static = function(instance)
 				local O = A+B
 
 				-- Set the samplepoint value(s) with clamping for safety.
-				instance.buffer:setSample(i, math.clamp(O, -1.0, 1.0))
+				instance.buffer:setSample(b, math.clamp(O, -1.0, 1.0))
 
 			else--if instance.outputAurality == 2 then
 
@@ -373,8 +411,8 @@ Process.static = function(instance)
 				R = R * instance.panR
 
 				-- Set the samplepoint value(s) with clamping for safety.
-				instance.buffer:setSample(i, 1, math.clamp(L, -1.0, 1.0))
-				instance.buffer:setSample(i, 2, math.clamp(R, -1.0, 1.0))
+				instance.buffer:setSample(b, 1, math.clamp(L, -1.0, 1.0))
+				instance.buffer:setSample(b, 2, math.clamp(R, -1.0, 1.0))
 
 			end
 
@@ -529,55 +567,84 @@ Process.static = function(instance)
 				-- Downmix to mono.
 				local O = (L+R) * 0.5
 				-- Set the samplepoint value(s) with clamping for safety.
-				instance.buffer:setSample(i, math.clamp(O, -1.0, 1.0))
+				instance.buffer:setSample(b, math.clamp(O, -1.0, 1.0))
 			else--if instance.outputAurality == 2 then
 				-- Set the samplepoint value(s) with clamping for safety.
-				instance.buffer:setSample(i, 1, math.clamp(L, -1.0, 1.0))
-				instance.buffer:setSample(i, 2, math.clamp(R, -1.0, 1.0))
+				instance.buffer:setSample(b, 1, math.clamp(L, -1.0, 1.0))
+				instance.buffer:setSample(b, 2, math.clamp(R, -1.0, 1.0))
+			end
+		end
+
+		-- Increase TSM frame index.
+		instance._frameIndex = instance._frameIndex + 1
+
+		-- If we are at the last one, calculate next frame offsets.
+		if instance._frameIndex > instance.curFrameSize - 1 then
+
+			-- Reset index.
+			instance._frameIndex = 0
+
+			-- Calculate next frame offset.
+			local nextPlaybackOffset = instance.playbackOffset + instance.curFrameSize
+				                     * instance.frameAdvance
+
+			-- Apply loop region bounding, if applicable.
+			if instance.looping then
+
+				local disjunct = instance.loopRegionB < instance.loopRegionA
+
+				-- If we're in the loop, make sure we don't leave it with neither of the two pointers.
+				if instance.loopRegionEntered then
+
+					-- Adjust both offsets to adhere to loop region bounds as well as SoundData length.
+					local loopRegionSize
+					if not disjunct then
+						-- One contiguous region between A and B.
+						loopRegionSize = instance.loopRegionB - instance.loopRegionA + 1
+
+					else--if disjunct then
+						-- Two separate regions between 0 and B, and A and N-1 respectively.
+						loopRegionSize = (1 + instance.loopRegionB) + (N - instance.loopRegionA)
+					end
+
+					-- One algorithm to rule them all
+					-- ...mathed out by Vörnicus, thank you once again~
+
+					nextPlaybackOffset = (
+						((instance.playbackOffset - instance.loopRegionA) % N
+						+ instance.curFrameSize   * instance.frameAdvance)
+						% loopRegionSize          + instance.loopRegionA) % N
+				end
+			end
+
+			-- Set instance's offset to what it should be, with wrapping by the input SoundData's size.
+			instance.playbackOffset = nextPlaybackOffset % N
+
+			-- If needed, recalculate TSM coefficients; needs to be done here to avoid mid-frame
+			-- changes which would result in glitches.
+			if instance._recalcTSMCoefficients then
+				calculateTSMCoefficients(instance)
+				instance._recalcTSMCoefficients = false
+			end
+
+			-- Randomize frame size.
+			if instance.frameVarianceDistributionIdx == 0 then
+				instance.curFrameSize = love.math.random(
+					instance.minFrameSize,
+					instance.maxFrameSize)
+			else
+				local avgFrameSize    = (instance.minFrameSize + instance.maxFrameSize) / 2.0
+				local normal          = love.math.randomNormal(avgFrameSize / 2.0, avgFrameSize)
+				instance.curFrameSize = math.floor(math.clamp(
+					normal, instance.minFrameSize, instance.maxFrameSize))
 			end
 		end
 	end
-
-	-- Calculate next frame offset.
-	local nextPlaybackOffset = instance.playbackOffset + instance.curFrameSize
-		                     * instance.timeStretch    * math.abs(instance.resampleRatio)
-
-	-- Apply loop region bounding, if applicable.
-	if instance.looping then
-
-		local disjunct = instance.loopRegionB < instance.loopRegionA
-
-		-- If we're in the loop, make sure we don't leave it with neither of the two pointers.
-		if instance.loopRegionEntered then
-
-			-- Adjust both offsets to adhere to loop region bounds as well as SoundData length.
-			local loopRegionSize
-			if not disjunct then
-				-- One contiguous region between A and B.
-				loopRegionSize = instance.loopRegionB - instance.loopRegionA + 1
-
-			else--if disjunct then
-				-- Two separate regions between 0 and B, and A and N-1 respectively.
-				loopRegionSize = (1 + instance.loopRegionB) + (N - instance.loopRegionA)
-			end
-
-			-- One algorithm to rule them all
-			-- ...mathed out by Vörnicus, thank you once again~
-
-			nextPlaybackOffset = (
-				((instance.playbackOffset - instance.loopRegionA) % N
-				+ instance.curFrameSize   * instance.timeStretch  * math.abs(instance.resampleRatio))
-				% loopRegionSize          + instance.loopRegionA) % N
-		end
-	end
-
-	-- Set instance's offset to what it should be, with wrapping by the input SoundData's size.
-	instance.playbackOffset = nextPlaybackOffset % N
 
 	-- Queue up the buffer we just calculated, and ensure it gets played even if the
 	-- Source object has already underrun, and hence stopped.
 	instance.source:queue(
-		instance.buffer, instance.curFrameSize * (instance.bitDepth/8) * instance.outputAurality)
+		instance.buffer, instance.bufferSize * (instance.bitDepth/8) * instance.outputAurality)
 	instance.source:play()
 end
 
@@ -591,34 +658,6 @@ end
 
 Process.queue = function()
 	-- Not Yet Implemented.
-end
-
-
-
-----------------------------------------------------------------------------------------------------
-
--- Helper functions that need to be called to recalculate multiple internals from varied methods.
-
--- Makes pitch shifting and time stretching possible.
-local function calculateTSMCoefficients(instance)
-	instance.innerOffset = instance.resampleRatio 
-	                     * instance.pitchShift    * math.sgn(instance.timeStretch)
-	instance.outerOffset = instance.resampleRatio *
-	                     ( instance.timeStretch   * math.sgn(instance.resampleRatio)
-	                     - instance.pitchShift    * math.sgn(instance.timeStretch))
-end
-
--- Pre-calculates how stereo sources should have their panning set.
-local function calculatePanningCoefficients(instance)
-	instance.panL, instance.panR = instance.panLawFunc(instance.panning)
-end
-
--- Pre-calculates values needed for uniformly random buffer resizing.
-local function calculateFrameCoefficients(instance)
-	local lLimit = math.floor(1 * 0.001 * instance.samplingRate + 0.5) -- 1 ms
-	local uLimit = instance.maxBufferSize
-	instance.minFrameSize = math.max(lLimit, instance.frameSize - instance.frameVariance)
-	instance.maxFrameSize = math.min(uLimit, instance.frameSize + instance.frameVariance)
 end
 
 
@@ -818,20 +857,24 @@ local function new(a,b,c,d,e)
 		-- The type of this instance.
 		instance.type = sourcetype
 
-		-- Size of the buffer used for processing; it's never resized, just framed.
-		instance.maxBufferSize = 65536
+		-- Size of the buffer used for processing.
+		instance.bufferSize    = 50 * 0.001 * instance.samplingRate
+
 		-- Size of the frame we use for applying effects onto the data, without variance.
-		instance.frameSize     =  2048
+		instance.frameSize     = 35 * 0.001 * instance.samplingRate
 		-- The amount of frame size variance centered on the above value, in smp-s.
-		instance.frameVariance =     0
+		instance.frameVariance = 17 * 0.001 * instance.samplingRate
 		-- The random distribution to use for varying the buffer's size.
 		instance.frameVarianceDistributionIdx = 1
 		-- The pre-calculated min, max and currently applied frame size, for performance reasons.
 		instance.minFrameSize  = nil
 		instance.maxFrameSize  = nil
 		calculateFrameCoefficients(instance)
-		-- Calculate an initial value for the to-be used actual frame size.
+		-- The variable holding the final TSM frame size that gets used.
 		instance.curFrameSize  =  instance.frameSize
+		-- Store the current point in the TSM frame we're at, due to this not being aligned with
+		-- the used buffer size.
+		instance._frameIndex   = 0
 
 		-- The playback state; stopped by default.
 		instance.playing = false
@@ -874,7 +917,11 @@ local function new(a,b,c,d,e)
 		-- The rate of smp advancement in one frame and the rate of frame advancement, respectively.
 		instance.innerOffset = nil
 		instance.outerOffset = nil
+		instance.frameAdvance = nil -- Me avoiding responsibilities :c
 		calculateTSMCoefficients(instance)
+		-- Flag to know we need to recalculate the coefficients
+		-- Note: Easier to only do this at Frame borders vs. mathing out what this does mid-frame.
+		instance._recalcTSMCoefficients = false
 
 		-- The panning law string and the function in use.
 		instance.panLaw     = 0
@@ -895,7 +942,7 @@ local function new(a,b,c,d,e)
 
 	-- Create internal buffer; format adheres to output.
 	instance.buffer = love.sound.newSoundData(
-		instance.maxBufferSize,
+		instance.bufferSize,
 		instance.samplingRate,
 		instance.bitDepth,
 		instance.outputAurality
@@ -965,7 +1012,7 @@ function ASource.clone(instance)
 
 	-- Buffer object: Create an unique one.
 	clone.buffer = love.sound.newSoundData(
-		clone.maxBufferSize,
+		clone.bufferSize,
 		clone.samplingRate,
 		clone.bitDepth,
 		clone.channelCount
@@ -1108,7 +1155,7 @@ end
 
 ----------------------------------------------------------------------------------------------------
 
--- Buffer related (Note that the SoundData used for buffering is never resized for perf. reasons.)
+-- Buffer related (Warning: Don't resize the buffer each frame, that might tank performance.)
 
 function ASource.getBufferSize(instance, unit)
 	unit = unit or 'milliseconds'
@@ -1119,11 +1166,9 @@ function ASource.getBufferSize(instance, unit)
 	end
 
 	if unit == 'samples' then
-		return instance.frameSize,
-		       instance.curFrameSize
+		return instance.bufferSize
 	else--if unit == 'milliseconds' then
-		return instance.frameSize    / instance.samplingRate * 1000,
-		       instance.curFrameSize / instance.samplingRate * 1000
+		return instance.bufferSize / instance.samplingRate * 1000
 	end
 end
 
@@ -1145,10 +1190,81 @@ function ASource.setBufferSize(instance, size, unit)
 
 	local min, max
 	if unit == 'samples' then
-		min, max = 1, instance.maxBufferSize
+		min =  1 * 0.001 * instance.samplingRate --  1 ms
+		max = 10         * instance.samplingRate -- 10 s
 	else--if unit = 'milliseconds' then
-		min = 1                      / instance.samplingRate * 1000
-		max = instance.maxBufferSize / instance.samplingRate * 1000
+		min =  1        --  1 ms
+		max = 10 * 1000 -- 10 s
+	end
+	if size < min or size > max then
+		error(("1st parameter out of range; " ..
+			"min/given/max: %f < [%f] < %f (%s)."):format(min, size, max, unit))
+	end
+
+	if unit == 'samples' then
+		instance.bufferSize = size
+	else--if unit = 'milliseconds' then
+		instance.bufferSize = math.floor(size * 0.001 * instance.samplingRate + 0.5)
+	end
+
+	-- Recreate internal buffer.
+	-- Note: We can assume that this call never happens mid-processing, so we never lose
+	--       previous buffer contents, no copying necessary.
+	instance.buffer:release()
+	instance.buffer = love.sound.newSoundData(
+		instance.bufferSize,
+		instance.samplingRate,
+		instance.bitDepth,
+		instance.outputAurality
+	)
+end
+
+
+
+----------------------------------------------------------------------------------------------------
+
+-- TSM Frame related
+
+function ASource.getFrameSize(instance, unit)
+	unit = unit or 'milliseconds'
+
+	if not BufferUnit[unit] then
+		error(("1st parameter must be `milliseconds`, `samples` or left empty; " ..
+			"got %s instead."):format(tostring(unit)))
+	end
+
+	if unit == 'samples' then
+		return instance.frameSize,
+		       instance.curFrameSize
+	else--if unit == 'milliseconds' then
+		return instance.frameSize    / instance.samplingRate * 1000,
+		       instance.curFrameSize / instance.samplingRate * 1000
+	end
+end
+
+function ASource.setFrameSize(instance, size, unit)
+	unit = unit or 'milliseconds'
+
+	if not BufferUnit[unit] then
+		error(("2nd parameter must be `milliseconds`, `samples` or left empty; " ..
+			"got %s instead."):format(tostring(unit)))
+	end
+
+	if not size then
+		error("Missing 1st parameter, must be a non-negative number.")
+	end
+	if type(size) ~= 'number' then
+		error(("1st parameter must be a non-negative number; " ..
+			"got %s instead."):format(tostring(size)))
+	end
+
+	local min, max
+	if unit == 'samples' then
+		min =  1 * 0.001 * instance.samplingRate --  1 ms
+		max = 10         * instance.samplingRate -- 10 s
+	else--if unit = 'milliseconds' then
+		min =  1        --  1 ms
+		max = 10 * 1000 -- 10 s
 	end
 	if size < min or size > max then
 		error(("1st parameter out of range; " ..
@@ -1164,7 +1280,7 @@ function ASource.setBufferSize(instance, size, unit)
 	calculateFrameCoefficients(instance)
 end
 
-function ASource.getBufferVariance(instance, unit)
+function ASource.getFrameVariance(instance, unit)
 	unit = unit or 'milliseconds'
 
 	if not VarianceUnit[unit] then
@@ -1181,7 +1297,7 @@ function ASource.getBufferVariance(instance, unit)
 	end
 end
 
-function ASource.setBufferVariance(instance, variance, unit)
+function ASource.setFrameVariance(instance, variance, unit)
 	unit = unit or 'milliseconds'
 
 	if not VarianceUnit[unit] then
@@ -1217,16 +1333,18 @@ function ASource.setBufferVariance(instance, variance, unit)
 	calculateFrameCoefficients(instance)
 end
 
-function ASource.getBufferVarianceDistribution(instance)
+function ASource.getFrameVarianceDistribution(instance)
 	return VarDistType[instance.frameVarianceDistributionIdx]
 end
 
-function ASource.setBufferVarianceDistribution(instance, distribution)
+function ASource.setFrameVarianceDistribution(instance, distribution)
 	if not VarDistIMap[distribution] then
 		error(("1st parameter is not a supported buffer variance distribution; got %s.\n" ..
 			"Supported: `uniform`, `normal`"):format(tostring(distribution)))
 	end
 	instance.frameVarianceDistributionIdx = VarDistIMap[distribution]
+
+	--calculateFrameCoefficients(instance)
 end
 
 
@@ -1576,7 +1694,7 @@ function ASource.setResamplingRatio(instance, ratio)
 
 	instance.resampleRatio = ratio
 
-	calculateTSMCoefficients(instance)
+	instance._recalcTSMCoefficients = true
 end
 
 function ASource.getTimeStretch(instance)
@@ -1594,7 +1712,7 @@ function ASource.setTimeStretch(instance, ratio)
 
 	instance.timeStretch = ratio
 
-	calculateTSMCoefficients(instance)
+	instance._recalcTSMCoefficients = true
 end
 
 function ASource.getPitchShift(instance, unit)
@@ -1640,7 +1758,7 @@ function ASource.setPitchShift(instance, amount, unit)
 		instance.pitchShiftSt = amount
 	end
 
-	calculateTSMCoefficients(instance)
+	instance._recalcTSMCoefficients = true
 end
 
 
@@ -1939,18 +2057,6 @@ while true do
 			-- If there is at least one empty internal buffer, do work.
 			-- Cheap bugfix for now, refactoring will deal with this later.
 			if instance.source:getFreeBufferCount() > 0 then
-
-				-- Randomize frame size.
-				if instance.frameVarianceDistributionIdx == 0 then
-					instance.curFrameSize = love.math.random(
-						instance.minFrameSize,
-						instance.maxFrameSize)
-				else
-					local avgFrameSize    = (instance.minFrameSize + instance.maxFrameSize) / 2.0
-					local normal          = love.math.randomNormal(avgFrameSize / 2.0, avgFrameSize)
-					instance.curFrameSize = math.floor(math.clamp(
-						normal, instance.minFrameSize, instance.maxFrameSize))
-				end
 
 				-- Process data.
 				Process[instance.type](instance)

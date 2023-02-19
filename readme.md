@@ -46,7 +46,7 @@ For those that want to, they can always add the function themselves into löve's
 - `Source:getBitDepth` and `Source:getSampleRate` added.
 
 - `Source:getBufferSize` added, with parameter `unit`; in either `samples`(samplepoints) or `milliseconds`, the latter being default.
-- `Source:setBufferSize` added, with parameters `amount` and `unit`; in either `samples`(samplepoints) or `milliseconds`, the latter being default; buffer sizes can be between 32 and 65536 samplepoints long; default is ~50 ms equivalent, rounded down.
+- `Source:setBufferSize` added, with parameters `amount` and `unit`; in either `samples`(samplepoints) or `milliseconds`, the latter being default; buffer sizes can be between 1 milliseconds and 10 seconds long; default is ~50 ms equivalent, rounded down.
 
 - `Source:getPitchShift` added, with parameter `unit`; in either as a non-negative `ratio`, or in `semitones`.
 - `Source:setPitchShift` added, with parameters `amount` and `unit`; in either as a non-negative `ratio`, or in `semitones`; modifies pitch only.
@@ -70,11 +70,14 @@ The two laws are constant-gain/amplitude and constant-power/loudness laws, the f
 - `Source:getStereoSeparation` added.
 - `Source:setStereoSeparation` added, with parameter `amount`; -1.0 means mid channel output only, 0.0 means original, 1.0 means side channel output only. Default is `0.0`.
 
-- `Source:getBufferVariance` added, with parameter `unit`, in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default.
-- `Source:setBufferVariance` added, with parameters `amount` and `unit`; in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default. Randomly varies the length of the buffer within its defined limits.
+- `Source:getFrameSize` added, with parameter `unit`; in either `samples`(samplepoints) or `milliseconds`, the latter being default.
+- `Source:setFrameSize` added, with parameters `amount` and `unit`; in either `samples`(samplepoints) or `milliseconds`, the latter being default; buffer sizes can be between 1 milliseconds and 10 seconds long; default is ~35 milliseconds.
 
-- `Source:getBufferVarianceDistribution` added.
-- `Source:setBufferVarianceDistribution` added, with parameters `uniform` and `normal`, with the latter being default.
+- `Source:getFrameVariance` added, with parameter `unit`, in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default.
+- `Source:setFrameVariance` added, with parameters `amount` and `unit`; in either `samples`(samplepoints), `milliseconds`, or as a `percentage`; milliseconds being default. Setting variance above 0 will vary the TSM frame size within the signed limits given, as long as they're within 1 millisecond and 10 seconds inclusive.
+
+- `Source:getFrameVarianceDistribution` added.
+- `Source:setFrameVarianceDistribution` added, with parameters `uniform` and `normal`, with the latter being default.
 
 - `Source:getMixMethod` added.
 - `Source:setMixMethod` added, with parameters `auto`, `linear`, `sqroot`, `cosine` and `noise`, with the first being default. It's best to leave this alone for most use-cases.
@@ -175,13 +178,23 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 
 	- Renamed "cosine" mixing method to square root, and added an actual cosine-based one, along with a white-noise based one for no real reason other than it being interesting.
 
-#### V?.? () - TODO
+#### V4.4 (2023.02.19) - CURRENT
 
-	- Added setBufferVarianceDistribution and getBufferVarianceDistribution methods to change how the buffer's length gets varied each time one is filled; can be either uniform or normal distribution (with a constant deviation).
+	- Made TSM frame size be independent from the chosen buffer size, meaning that frame size changes won't change how much input time delay there is.
+
+	- Split setBufferSize and getBufferSize into two; the separate functions added are setFrameSize and getFrameSize.
+
+	- Renamed setBufferVariance and getBufferVariance to setFrameVariance and getFrameVariance.
+
+	- Added setFrameVarianceDistribution and getFrameVarianceDistribution methods to change how the buffer's length gets varied each time one is filled; can be either uniform or normal distribution (with a constant deviation).
 
 	- Changed panning law internals a bit, including bugfixes; now also stored as an enumeration, like everything else. (The custom one is still stored as a per-instance function as well, if defined.)
 
-	- Made TSM frame size be independent from the chosen buffer size, meaning that frame size changes won't change how much time delay there is.
+	- Removed noise-based mixing method, it was not useful.
+
+#### V?.? () - TODO
+
+	- Have the number of OpenAL-Soft internal buffers not change processing delay. (Note: More testing needed.)
 
 	- Add missing versions to :queue. (rest of the parameters, that is)
 	- Add all advanced functionality to `stream` type ASources.
@@ -191,7 +204,7 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 
 #### Remarks:
 
-- Tagging support: This library should work out-of-the-box with Tesselode's Ripple library, which implements such features, if needed.
+	- Tagging support: This library should work out-of-the-box with Tesselode's Ripple library, which implements such features, if needed... unfortunately issues have been reported, so this might not be hassle-free... TODO look into solutions.
 
 ### License
 This library licensed under the ISC License.

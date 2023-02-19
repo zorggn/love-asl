@@ -93,10 +93,13 @@ do
 
 	method.getBufferSize = true
 	method.setBufferSize = true
-	method.getBufferVariance = true
-	method.setBufferVariance = true
-	method.getBufferVarianceDistribution = true
-	method.setBufferVarianceDistribution = true
+
+	method.getFrameSize = true
+	method.setFrameSize = true
+	method.getFrameVariance = true
+	method.setFrameVariance = true
+	method.getFrameVarianceDistribution = true
+	method.setFrameVarianceDistribution = true
 
 	method.isPlaying = true
 	method.play = true
