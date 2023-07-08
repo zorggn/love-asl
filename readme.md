@@ -194,13 +194,23 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 
 #### V?.? () - TODO
 
+	- Move out loading code from processing thread so it never stalls...
+
+	- Add callback functionality to handle processed buffers (one use-case being visualizers, for example)
+
 	- Have the number of OpenAL-Soft internal buffers not change processing delay. (Note: More testing needed.)
+
+	- Fix error behaviour (show handler screen instead of crashing)
+
+	- Do automatic refcount across threads... possible?
 
 	- Add missing versions to :queue. (rest of the parameters, that is)
 	- Add all advanced functionality to `stream` type ASources.
 	- Add all advanced functionality to `queue` type ASources. Probably using threading to call worker functions...
 		- The queue method also supports all variants that löve supports, except that the lightuserdata variant does
 		  not need the format parameters, since it'll use the ASource's given format anyway.
+
+	- Implement a way to have each ASource be instanceable internally (==> multiple voices).
 
 #### Remarks:
 
