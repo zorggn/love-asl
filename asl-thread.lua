@@ -1027,8 +1027,30 @@ function ASource.clone(instance)
 		clone.outputAurality,
 		clone.OALBufferCount
 	)
+	-- Due to the above duct tape, we also need to manually copy over QSource internals that aren't
+	-- touched by the library:
+	local fxlist = instance.source:getActiveEffects()
+	for i,name in ipairs(fxlist) do
+		local filtersettings = instance.source:getEffect(name)
+		if filtersettings then
+			clone.source:setEffect(name, filtersettings)
+		else
+			clone.source:setEffect(name, true)
+		end
+	end
+	clone.source:setFilter(               instance.source:getFilter())
+	clone.source:setAirAbsorption(        instance.source:getAirAbsorption())
+	clone.source:setAttenuationDistances( instance.source:getAttenuationDistances())
+	clone.source:setCone(                 instance.source:getCone())
+	clone.source:setDirection(            instance.source:getDirection())
+	clone.source:setPosition(             instance.source:getPosition())
+	clone.source:setRolloff(              instance.source:getRolloff())
+	clone.source:setVelocity(             instance.source:getVelocity())
+	clone.source:setRelative(             instance.source:isRelative())
+	clone.source:setVolumeLimits(         instance.source:getVolumeLimits())
+	clone.source:setVolume(               instance.source:getVolume())
 
-	-- Make sure all internals are configured correctly.
+	-- Make sure all library-specific internals are configured correctly.
 	calculateTSMCoefficients(clone)
 	calculatePanningCoefficients(clone)
 	calculateFrameCoefficients(clone)

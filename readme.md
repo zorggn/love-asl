@@ -178,7 +178,7 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 
 	- Renamed "cosine" mixing method to square root, and added an actual cosine-based one, along with a white-noise based one for no real reason other than it being interesting.
 
-#### V4.4 (2023.02.19) - CURRENT
+#### V4.4 (2023.02.19)
 
 	- Made TSM frame size be independent from the chosen buffer size, meaning that frame size changes won't change how much input time delay there is.
 
@@ -191,6 +191,10 @@ The aurality parameter forces the internal QSource and buffers to be either mono
 	- Changed panning law internals a bit, including bugfixes; now also stored as an enumeration, like everything else. (The custom one is still stored as a per-instance function as well, if defined.)
 
 	- Removed noise-based mixing method, it was not useful.
+
+#### V4.5 (2023.07.08) - CURRENT
+
+	- Fixed cloning not setting Source-specific internal state. (Temporary; permanent fix will come when i figure out why calling source:clone can fail.)
 
 #### V?.? () - TODO
 
