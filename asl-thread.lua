@@ -994,9 +994,9 @@ function ASource.clone(instance)
 
 	-- Set the playback state to stopped, which also resets the pointer to the start.
 	-- Due to reverse playback support, the start point is dependent on the playback direction.
-	clone._isPlaying = false
+	clone.playing = false
 	if     clone.type == 'static' then
-		clone.pointer = clone.timeStretch >= 0 and 0 or math.max(0, clone.data:getSampleCount()-1)
+		clone.playbackOffset = clone.timeStretch >= 0 and 0 or math.max(0, clone.data:getSampleCount()-1)
 	elseif clone.type == 'stream' then
 		-- Not Yet Implemented.
 	else--if clone.type == 'queue' then
